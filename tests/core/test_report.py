@@ -1,9 +1,13 @@
 """Report generation smoke tests."""
 
+import json
+
 from src.core.report import (
     generate_coverage_markdown,
     generate_evidence_table,
     generate_pattern_report,
+    generate_patterns_summary,
+    generate_run_summary,
 )
 from src.core.types import (
     ConfidenceLevel,
@@ -48,6 +52,39 @@ def test_generate_evidence_table() -> None:
     assert '"exploratory"' in raw
     assert "Gap guidance text" in raw
     assert "Not enough evidence" in raw
+
+
+def test_generate_patterns_summary() -> None:
+    pr = PromotedPattern(
+        pattern_type=PatternType.BRIDGE,
+        title="OK",
+        evidence=[EvidenceItem("a1", "t", "d", "https://a", 1)] * 4,
+        confidence_score=0.9,
+        promotion_reason="Passed",
+        interpretation="Interp",
+    )
+    pr.confidence_level = ConfidenceLevel.HIGH
+    ex = PromotedPattern(
+        pattern_type=PatternType.GAP,
+        title="Weak",
+        evidence=[EvidenceItem("a2", "t2", "d2", "https://b", 2)],
+        withheld_reason="Low evidence",
+    )
+    raw = generate_patterns_summary([pr], [ex])
+    assert "promoted" in raw
+    assert "exploratory" in raw
+    assert "Passed" in raw
+    assert "Low evidence" in raw
+    assert "counter_evidence_count" in raw
+
+
+def test_generate_run_summary_roundtrip() -> None:
+    snap = {
+        "input": {"topic": "q", "resume": False},
+        "patterns": {"promoted": 2, "exploratory": 1},
+    }
+    out = generate_run_summary(snap)
+    assert json.loads(out) == snap
 
 
 def test_coverage_markdown() -> None:

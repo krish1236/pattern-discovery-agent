@@ -121,6 +121,36 @@ def generate_evidence_table(
     return json.dumps(entries, indent=2)
 
 
+def generate_patterns_summary(
+    promoted: list[PromotedPattern],
+    exploratory: list[PromotedPattern],
+) -> str:
+    """One JSON array of pattern records (promoted and exploratory) for APIs and dashboards."""
+
+    def _one(p: PromotedPattern, status: str) -> dict[str, Any]:
+        return {
+            "id": p.id,
+            "pattern_type": p.pattern_type.value,
+            "title": p.title,
+            "promotion_status": status,
+            "confidence": p.confidence_level.value if p.confidence_level else "",
+            "evidence_count": p.evidence_count,
+            "counter_evidence_count": len(p.counter_evidence),
+            "measured_pattern": p.measured_pattern or "",
+            "interpretation": p.interpretation or "",
+            "withheld_reason": p.withheld_reason or "",
+            "promotion_reason": p.promotion_reason or "",
+        }
+
+    rows = [_one(p, "promoted") for p in promoted] + [_one(p, "exploratory") for p in exploratory]
+    return json.dumps(rows, indent=2)
+
+
+def generate_run_summary(snapshot: dict[str, Any]) -> str:
+    """Serialize run metadata (inputs, resolved pack, pipeline stats). No API keys."""
+    return json.dumps(snapshot, indent=2, default=str)
+
+
 def generate_coverage_markdown(coverage: CoverageReport) -> str:
     lines = ["# Coverage report\n"]
     lines.append(f"- Total documents: {coverage.total_documents}")

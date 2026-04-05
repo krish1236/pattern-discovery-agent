@@ -22,9 +22,17 @@ from src.core.report import (
     generate_evidence_table,
     generate_graph_html,
     generate_pattern_report,
+    generate_patterns_summary,
+    generate_run_summary,
 )
 from src.checkpoint import load_checkpoint_from_blobs
-from src.core.types import ConfidenceLevel, CoverageReport, ExtractionResult, PatternCandidate
+from src.core.types import (
+    ConfidenceLevel,
+    CoverageReport,
+    ExtractionResult,
+    PatternCandidate,
+    PromotedPattern,
+)
 from src.core.verifier import verify_all
 from src.pack_registry import resolve_domain_pack
 from src.packs.research.router import build_source_plan
@@ -328,6 +336,37 @@ async def run(ctx, input):  # noqa: ANN001
         evidence_json = generate_evidence_table(promoted, exploratory)
         ctx.artifact("evidence_table.json", evidence_json, "application/json")
 
+        ctx.artifact(
+            "patterns_summary.json",
+            generate_patterns_summary(promoted, exploratory),
+            "application/json",
+        )
+
+        plan_info = ctx.state.get("source_plan") or {}
+        run_snapshot: dict = {
+            "input": {
+                "topic": topic,
+                "depth": depth,
+                "focus": focus,
+                "time_range": time_range,
+                "max_documents": max_documents,
+                "resume": resume_requested,
+                "remine_patterns": bool(payload.get("remine_patterns")),
+                "domain": payload.get("domain"),
+            },
+            "resolved": {"pack_domain": pack.domain},
+            "corpus": ctx.state.get("corpus_stats"),
+            "extraction": ctx.state.get("extraction_stats"),
+            "graph": ctx.state.get("graph_stats"),
+            "patterns": ctx.state.get("pattern_stats"),
+        }
+        if isinstance(plan_info, dict):
+            run_snapshot["source_plan"] = {
+                "connectors": plan_info.get("connectors"),
+                "query_count": len(plan_info.get("queries") or []),
+            }
+        ctx.artifact("run_summary.json", generate_run_summary(run_snapshot), "application/json")
+
         ctx.artifact("coverage_report.md", generate_coverage_markdown(coverage), "text/markdown")
 
         graph_html = generate_graph_html(graph, promoted)
@@ -345,18 +384,20 @@ async def run(ctx, input):  # noqa: ANN001
                 "graph_edges": graph.edge_count,
             }
         )
+        def _pattern_result_row(p: PromotedPattern) -> dict[str, str | int]:
+            return {
+                "type": p.pattern_type.value,
+                "title": p.title,
+                "confidence": p.confidence_level.value if p.confidence_level else "",
+                "evidence_count": p.evidence_count,
+                "interpretation": p.interpretation or "",
+                "withheld_reason": p.withheld_reason or "",
+            }
+
+        ctx.results.set_table("patterns", [_pattern_result_row(p) for p in promoted])
         ctx.results.set_table(
-            "patterns",
-            [
-                {
-                    "type": p.pattern_type.value,
-                    "title": p.title,
-                    "confidence": p.confidence_level.value if p.confidence_level else "",
-                    "evidence_count": p.evidence_count,
-                    "interpretation": p.interpretation or "",
-                }
-                for p in promoted
-            ],
+            "exploratory_patterns",
+            [_pattern_result_row(p) for p in exploratory],
         )
         ctx.log(f"Artifacts written: {len(promoted)} promoted patterns, {len(all_docs)} documents")
 
