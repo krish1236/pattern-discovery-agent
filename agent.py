@@ -309,7 +309,7 @@ async def run(ctx, input):  # noqa: ANN001
         )
 
     with ctx.safe_step("verify_patterns"):
-        promoted, exploratory = verify_all(candidates)
+        promoted, exploratory = verify_all(candidates, interpret=pack.interpret)
         ctx.state["pattern_stats"]["promoted"] = len(promoted)
         ctx.state["pattern_stats"]["exploratory"] = len(exploratory)
         ctx.log(f"Verified: {len(promoted)} promoted, {len(exploratory)} exploratory")

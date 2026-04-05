@@ -100,3 +100,14 @@ class TestVerifier:
         promoted, exploratory = verify_all([strong, weak])
         assert len(promoted) >= 1
         assert len(exploratory) >= 1
+
+    def test_interpret_hook_fills_promoted_text(self) -> None:
+        pattern = PatternCandidate(
+            pattern_type=PatternType.BRIDGE,
+            title="X",
+            evidence=_make_evidence(5, [1, 2, 1, 2, 1]),
+            confidence_score=0.8,
+        )
+        out = verify_pattern(pattern, interpret=lambda p: f"note:{p.pattern_type.value}")
+        assert out is not None
+        assert out.interpretation == "note:bridge"

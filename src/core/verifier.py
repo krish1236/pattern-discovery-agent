@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from src.core.types import BlindSpot, ConfidenceLevel, PatternCandidate, PromotedPattern
 
@@ -32,7 +33,11 @@ def _compute_confidence_level(pattern: PatternCandidate) -> ConfidenceLevel:
     return ConfidenceLevel.LOW
 
 
-def verify_pattern(pattern: PatternCandidate) -> PromotedPattern | None:
+def verify_pattern(
+    pattern: PatternCandidate,
+    *,
+    interpret: Callable[[PatternCandidate], str] | None = None,
+) -> PromotedPattern | None:
     reasons: list[str] = []
 
     if pattern.evidence_count < MIN_EVIDENCE_COUNT:
@@ -65,23 +70,29 @@ def verify_pattern(pattern: PatternCandidate) -> PromotedPattern | None:
         promoted = PromotedPattern(**pattern.__dict__)
         promoted.withheld_reason = "; ".join(reasons)
         promoted.confidence_level = ConfidenceLevel.LOW
+        if interpret:
+            promoted.interpretation = interpret(promoted)
         return promoted
 
     promoted = PromotedPattern(**pattern.__dict__)
     promoted.promotion_reason = "Passed all promotion checks"
     promoted.confidence_level = confidence_level
+    if interpret:
+        promoted.interpretation = interpret(promoted)
     logger.info("Promoted pattern %r with confidence=%s", pattern.title, confidence_level.value)
     return promoted
 
 
 def verify_all(
     candidates: list[PatternCandidate],
+    *,
+    interpret: Callable[[PatternCandidate], str] | None = None,
 ) -> tuple[list[PromotedPattern], list[PromotedPattern]]:
     promoted: list[PromotedPattern] = []
     exploratory: list[PromotedPattern] = []
 
     for candidate in candidates:
-        result = verify_pattern(candidate)
+        result = verify_pattern(candidate, interpret=interpret)
         if result:
             if result.withheld_reason:
                 exploratory.append(result)
