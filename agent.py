@@ -23,7 +23,7 @@ from src.core.report import (
 from src.checkpoint import load_checkpoint_from_blobs
 from src.core.types import ConfidenceLevel, CoverageReport, ExtractionResult
 from src.core.verifier import verify_all
-from src.packs.research import ResearchPack
+from src.pack_registry import resolve_domain_pack
 from src.packs.research.router import build_source_plan
 from src.shared.corpus import assign_tiers, corpus_stats, deduplicate, expand_corpus
 from src.shared.embeddings import embed_texts
@@ -94,13 +94,14 @@ async def _close_connectors(connectors: list) -> None:
 
 @runtime.agent(name="pattern-discovery", planned_steps=STEPS)
 async def run(ctx, input):  # noqa: ANN001
-    pack = ResearchPack()
     payload = {**(input or {}), **ctx.inputs}
     topic = payload.get("topic", "")
     depth = payload.get("depth", "standard")
     focus = payload.get("focus", "all")
     time_range = payload.get("time_range")
     max_documents = int(payload.get("max_documents", 100))
+
+    pack = resolve_domain_pack(domain=payload.get("domain"), topic=topic)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     config = {
@@ -133,9 +134,10 @@ async def run(ctx, input):  # noqa: ANN001
         all_docs, results, graph = loaded
 
     with ctx.safe_step("classify_topic"):
-        ctx.log(f"Topic: {topic!r}, domain: {pack.domain}")
+        ctx.log(f"Topic: {topic!r}, pack: {pack.domain}")
         ctx.state["topic"] = topic
         ctx.state["domain"] = pack.domain
+        ctx.state["pack_domain"] = pack.domain
         if resume_requested:
             if skip_through_build:
                 ctx.log("Resume: loaded checkpoint blobs; ingest through graph build will be skipped.")
@@ -282,6 +284,11 @@ async def run(ctx, input):  # noqa: ANN001
 
         ctx.state["pattern_stats"] = {"candidates": len(candidates)}
         ctx.log(f"Pattern mining: {len(candidates)} candidates")
+        _storage_put(
+            ctx,
+            "pattern_candidates.json",
+            json.dumps([c.to_dict() for c in candidates]),
+        )
 
     with ctx.safe_step("verify_patterns"):
         promoted, exploratory = verify_all(candidates)

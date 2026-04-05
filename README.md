@@ -137,6 +137,7 @@ Match `agent.yaml` `entrypoint` to your module (`agent:run`). Inputs from the tr
 ```json
 {
   "topic": "AI agent frameworks and orchestration",
+  "domain": "research",
   "depth": "standard",
   "focus": "all",
   "time_range": "2023-2026",
@@ -145,7 +146,9 @@ Match `agent.yaml` `entrypoint` to your module (`agent:run`). Inputs from the tr
 }
 ```
 
-Set `"resume": true` when `ctx.storage` already has `documents.json`, `extraction_results.json`, and `graph.json` from a previous run (same project storage). In that case ingest, expansion, extraction, and graph rebuild are skipped. Stored `graph.json` includes node embeddings when written by the agent; any node still missing vectors gets embedded before mining.
+Optional `domain` selects the pack (`research`, or aliases like `technical`); unknown values fall back to research. If you omit `domain`, the topic is matched against research heuristics when possible.
+
+Set `"resume": true` when `ctx.storage` already has `documents.json`, `extraction_results.json`, and `graph.json` from a previous run (same project storage). In that case ingest, expansion, extraction, and graph rebuild are skipped. Stored `graph.json` includes node embeddings when written by the agent; any node still missing vectors gets embedded before mining. After each mining step, `pattern_candidates.json` is written for inspection or future tooling.
 
 ## License
 
