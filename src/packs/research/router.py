@@ -71,6 +71,42 @@ def is_research_topic(topic: str) -> bool:
     return any(kw in topic_lower for kw in RESEARCH_KEYWORDS)
 
 
+def _generate_queries(topic: str, max_queries: int = 8) -> list[str]:
+    """Split a natural-language topic into diverse sub-queries for scholarly APIs."""
+    queries = [topic.strip()]
+    words = topic.lower().replace(",", " ").split()
+    filler = {
+        "and",
+        "or",
+        "the",
+        "of",
+        "in",
+        "for",
+        "with",
+        "vs",
+        "versus",
+        "a",
+        "an",
+        "to",
+        "on",
+        "debate",
+    }
+    key_phrases = [w for w in words if w not in filler and len(w) > 2]
+    if len(key_phrases) >= 2:
+        for i in range(0, len(key_phrases) - 1):
+            queries.append(f"{key_phrases[i]} {key_phrases[i + 1]}")
+    queries.append(f"{topic} survey")
+    queries.append(f"{topic} review")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for q in queries:
+        k = q.lower().strip()
+        if k and k not in seen:
+            seen.add(k)
+            unique.append(q.strip())
+    return unique[:max_queries]
+
+
 def build_source_plan(
     topic: str,
     depth: str = "standard",
@@ -87,10 +123,14 @@ def build_source_plan(
         connectors.append("github")
     connectors.append("web_search")
 
-    queries = [topic, f"{topic} survey", f"{topic} benchmark evaluation"]
+    queries = _generate_queries(topic)
+    if f"{topic} benchmark evaluation".lower() not in {q.lower() for q in queries}:
+        queries.append(f"{topic} benchmark evaluation")
     if focus in ("drift", "all"):
-        queries.append(f"{topic} recent advances")
-        queries.append(f"{topic} emerging trends")
+        for extra in (f"{topic} recent advances", f"{topic} emerging trends"):
+            if extra.lower() not in {q.lower() for q in queries}:
+                queries.append(extra)
+    queries = queries[:10]
 
     per_connector = max(10, max_docs // max(len(connectors), 1))
     expansion_budget = max(20, max_docs // 3)

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from difflib import SequenceMatcher
 
+import numpy as np
+
 from src.core.types import SourceDocument
 from src.domain_pack import DomainPack, SourceConnector
 
@@ -65,6 +67,41 @@ def deduplicate(documents: list[SourceDocument], title_threshold: float = 0.9) -
     result = list(seen_keys.values()) + deduped_no_key
     logger.info("Dedup: %s -> %s documents", len(documents), len(result))
     return result
+
+
+def filter_by_relevance(
+    documents: list[SourceDocument],
+    topic: str,
+    min_similarity: float = 0.25,
+) -> list[SourceDocument]:
+    """Drop documents whose title/abstract embedding is far from the topic embedding."""
+    if not documents or not (topic or "").strip():
+        return documents
+
+    from src.shared.embeddings import cosine_similarity, embed_texts
+
+    topic_emb = np.asarray(embed_texts([topic.strip()])[0], dtype=np.float64).ravel()
+    texts = [(d.abstract or d.title or "")[:2000] for d in documents]
+    doc_embs = embed_texts(texts)
+    filtered: list[SourceDocument] = []
+    for doc, emb in zip(documents, doc_embs, strict=True):
+        e = np.asarray(emb, dtype=np.float64).ravel()
+        if topic_emb.shape != e.shape or topic_emb.size == 0:
+            filtered.append(doc)
+            continue
+        sim = cosine_similarity(topic_emb, e)
+        if sim >= min_similarity:
+            filtered.append(doc)
+        else:
+            logger.debug(
+                "Dropping irrelevant doc (sim=%.2f): %s",
+                sim,
+                (doc.title or "")[:60],
+            )
+    dropped = len(documents) - len(filtered)
+    if dropped:
+        logger.info("Relevance filter: dropped %s/%s off-topic documents", dropped, len(documents))
+    return filtered
 
 
 def cap_documents_round_robin_by_family(documents: list[SourceDocument], max_n: int) -> list[SourceDocument]:

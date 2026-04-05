@@ -73,7 +73,7 @@ def _classify_nli(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
 
 def detect_contradictions(
     graph: KnowledgeGraph,
-    similarity_threshold: float = 0.6,
+    similarity_threshold: float = 0.4,
     contradiction_confidence: float = 0.7,
     max_pairs: int = 2000,
 ) -> list[PatternCandidate]:
@@ -218,8 +218,20 @@ async def refine_contradiction_candidates(
         )
         user_msg = (
             f"{scenario}\n\n"
+            "Classify this contradiction. Be precise:\n\n"
+            "- 'real': The claims directly conflict and cannot both be true.\n"
+            "  Examples: 'X achieves 95% accuracy' vs 'X accuracy is below 60%'.\n"
+            "  'The system is secure' vs 'The system has known vulnerability Y'.\n"
+            "  'Method scales to N' vs 'Method fails beyond M where M < N'.\n\n"
+            "- 'conditional': Both claims could be true under different conditions.\n"
+            "  Example: 'Works well for use case A' vs 'Fails for use case B'.\n"
+            "  KEEP these — note the conditions.\n\n"
+            "- 'apparent': Not actually contradictory — different topics, or one is a\n"
+            "  subset/refinement of the other, or they use different definitions.\n"
+            "  ONLY use this when there is genuinely no conflict.\n\n"
+            "When in doubt between 'conditional' and 'apparent', choose 'conditional'.\n\n"
             "Respond ONLY with JSON (no markdown fences): "
-            '{"classification":"real"|"apparent"|"conditional",'
+            '{"classification":"real"|"conditional"|"apparent",'
             '"reasoning":"one or two sentences",'
             '"conditions_for_claim_a":"when claim A holds, if any",'
             '"conditions_for_claim_b":"when claim B holds, if any"}'

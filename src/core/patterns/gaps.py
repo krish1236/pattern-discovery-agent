@@ -6,9 +6,16 @@ import logging
 from collections import defaultdict
 
 from src.core.graph import KnowledgeGraph
-from src.core.types import BlindSpot, EdgeType, EvidenceItem, PatternCandidate, PatternType
+from src.core.types import BlindSpot, EdgeType, EvidenceItem, NodeType, PatternCandidate, PatternType
 
 logger = logging.getLogger(__name__)
+
+
+def _recommender_source_key(graph: KnowledgeGraph, recommender_id: str) -> str:
+    rec_node = graph.get_node(recommender_id)
+    if not rec_node:
+        return recommender_id
+    return str(rec_node.properties.get("source_document_id") or recommender_id)
 
 
 def detect_gaps(
@@ -19,20 +26,29 @@ def detect_gaps(
     recommends_count: dict[str, list[str]] = defaultdict(list)
     execution_count: dict[str, int] = defaultdict(int)
 
-    for u, v, data in graph.g.edges(data=True):
+    for _u, _v, data in graph.g.edges(data=True):
         for edge_dict in data.get("edges", []):
             etype = edge_dict.get("edge_type", "")
+            src = edge_dict.get("source_node_id")
+            tgt = edge_dict.get("target_node_id")
+            if not src or not tgt:
+                continue
             if etype == EdgeType.RECOMMENDS.value:
-                recommends_count[v].append(u)
+                recommends_count[tgt].append(src)
             elif etype in (EdgeType.EVALUATES.value, EdgeType.PRODUCES.value):
-                execution_count[v] += 1
+                execution_count[tgt] += 1
 
     gaps: list[tuple[str, int, int]] = []
     for node_id, recommenders in recommends_count.items():
-        if len(recommenders) >= min_recommendations:
+        node = graph.get_node(node_id)
+        if not node or node.node_type not in (NodeType.CONCEPT, NodeType.ARTIFACT):
+            continue
+        unique_sources = {_recommender_source_key(graph, rid) for rid in recommenders}
+        n_sources = len(unique_sources)
+        if n_sources >= min_recommendations:
             ex = execution_count.get(node_id, 0)
             if ex <= 1:
-                gaps.append((node_id, len(recommenders), ex))
+                gaps.append((node_id, n_sources, ex))
 
     gaps.sort(key=lambda x: x[1], reverse=True)
     gaps = gaps[:top_k]
@@ -60,7 +76,7 @@ def detect_gaps(
                 pattern_type=PatternType.GAP,
                 title=f"Gap: {node.name}",
                 measured_pattern=(
-                    f"'{node.name}' is recommended by {rec_count} sources "
+                    f"'{node.name}' is recommended by {rec_count} distinct source document(s) "
                     f"but has only {exec_count} execution or evaluation edges."
                 ),
                 evidence=evidence,

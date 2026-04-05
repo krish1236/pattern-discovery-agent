@@ -127,7 +127,7 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
             id="as1",
             node_type=NodeType.ASSERTION,
             name="ZebraAlphaQx",
-            description="First community claim text",
+            description="QuasarRuntimeKernel first community claim text",
             domain="research",
             properties={
                 "source_document_id": "doc-a",
@@ -162,7 +162,7 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
             id="as2",
             node_type=NodeType.ASSERTION,
             name="MoonBetaYz9",
-            description="Second community claim text",
+            description="HelixWorkflowMesh second community claim text",
             domain="research",
             properties={
                 "source_document_id": "doc-b",
@@ -208,3 +208,20 @@ class TestBridgeDetection:
             assert hasattr(p, "pattern_type")
             assert hasattr(p, "evidence")
             assert hasattr(p, "blind_spots")
+
+    def test_bridge_evidence_text_mentions_endpoints(
+        self, bridge_graph_with_community_assertions: KnowledgeGraph
+    ) -> None:
+        patterns = detect_bridges(
+            bridge_graph_with_community_assertions,
+            min_community_size=2,
+            semantic_threshold=0.35,
+        )
+        assert patterns
+        p0 = patterns[0]
+        blob = " ".join(e.assertion_text.lower() for e in p0.evidence)
+        u = p0.details.get("bridge_node_u", "").lower()
+        v = p0.details.get("bridge_node_v", "").lower()
+        assert u and v
+        assert u in blob or any(w in blob for w in u.split() if len(w) > 3)
+        assert v in blob or any(w in blob for w in v.split() if len(w) > 3)

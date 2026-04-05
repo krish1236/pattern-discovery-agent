@@ -12,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from src.core.types import SourceDocument
 from src.domain_pack import SourceConnector
 
-ARXIV_BASE = "http://export.arxiv.org/api"
+ARXIV_BASE = "https://export.arxiv.org/api"
 NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
@@ -71,7 +71,7 @@ class ArxivConnector(SourceConnector):
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         return self._client
 
     async def _rate_limit(self) -> None:

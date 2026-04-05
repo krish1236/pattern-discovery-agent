@@ -43,6 +43,7 @@ from src.shared.corpus import (
     corpus_stats,
     deduplicate,
     expand_corpus,
+    filter_by_relevance,
 )
 from src.shared.embeddings import embed_texts
 from src.shared.extraction import extract_batch
@@ -180,7 +181,7 @@ async def run(ctx, input):  # noqa: ANN001
             connectors = pack.get_connectors(config)
             try:
                 for connector in connectors:
-                    for query in plan.queries[:3]:
+                    for query in plan.queries[:8]:
                         try:
                             docs = await connector.search(
                                 query,
@@ -195,6 +196,7 @@ async def run(ctx, input):  # noqa: ANN001
                 await _close_connectors(connectors)
 
             all_docs = deduplicate(all_docs)
+            all_docs = filter_by_relevance(all_docs, topic)
             all_docs = cap_documents_round_robin_by_family(all_docs, max_documents)
             all_docs = assign_tiers(all_docs, pack)
             stats = corpus_stats(all_docs)
@@ -216,6 +218,7 @@ async def run(ctx, input):  # noqa: ANN001
             new_docs = assign_tiers(new_docs, pack)
             all_docs.extend(new_docs)
             all_docs = deduplicate(all_docs)
+            all_docs = filter_by_relevance(all_docs, topic)
             ctx.log(f"After expansion: {len(all_docs)} documents")
             _storage_put(ctx, "documents.json", json.dumps([d.to_dict() for d in all_docs]))
 

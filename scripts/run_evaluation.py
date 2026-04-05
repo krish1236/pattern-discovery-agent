@@ -53,6 +53,7 @@ from src.shared.corpus import (
     cap_documents_round_robin_by_family,
     corpus_stats,
     deduplicate,
+    filter_by_relevance,
     expand_corpus,
 )
 from src.shared.embeddings import embed_texts
@@ -201,7 +202,7 @@ async def run_pipeline(
     for connector in connectors:
         cname = connector.__class__.__name__
         cdocs: list = []
-        for query in plan.queries[:3]:
+        for query in plan.queries[:8]:
             try:
                 docs = await connector.search(
                     query,
@@ -221,6 +222,7 @@ async def run_pipeline(
 
     pre_dedup = len(all_docs)
     all_docs = deduplicate(all_docs)
+    all_docs = filter_by_relevance(all_docs, topic)
     all_docs = cap_documents_round_robin_by_family(all_docs, max_documents)
     all_docs = assign_tiers(all_docs, pack)
     stats = corpus_stats(all_docs)
@@ -266,6 +268,7 @@ async def run_pipeline(
     new_docs = assign_tiers(new_docs, pack)
     all_docs.extend(new_docs)
     all_docs = deduplicate(all_docs)
+    all_docs = filter_by_relevance(all_docs, topic)
 
     timings["expand"] = time.time() - t_expand
     logger.info("After expansion: %s documents (+%s new)", len(all_docs), len(new_docs))

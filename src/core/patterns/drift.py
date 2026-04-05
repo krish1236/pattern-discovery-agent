@@ -8,7 +8,7 @@ from collections import defaultdict
 import numpy as np
 
 from src.core.graph import KnowledgeGraph
-from src.core.types import BlindSpot, NodeType, PatternCandidate, PatternType
+from src.core.types import BlindSpot, EvidenceItem, Node, NodeType, PatternCandidate, PatternType
 from src.shared.embeddings import embed_texts
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ def detect_drift(
         return []
 
     window_clusters: dict[str, list[set[int]]] = {}
+    window_cluster_nodes: dict[str, dict[int, list[Node]]] = {}
 
     for window, nodes in bins.items():
         texts = [n.description or n.name for n in nodes]
@@ -48,7 +49,6 @@ def detect_drift(
             embeddings = np.asarray(embed_texts(texts), dtype=np.float64)
             import hdbscan
 
-            # Some hdbscan builds reject metric="cosine"; use precomputed cosine distance.
             sim = np.dot(embeddings, embeddings.T)
             dist = (1.0 - np.clip(sim, -1.0, 1.0)).astype(np.float64, copy=False)
             np.fill_diagonal(dist, 0.0)
@@ -59,6 +59,10 @@ def detect_drift(
                 if label >= 0:
                     clusters[label].add(idx)
             window_clusters[window] = list(clusters.values())
+            window_cluster_nodes[window] = {
+                label: [nodes[i] for i in sorted(indices)]
+                for label, indices in clusters.items()
+            }
         except Exception as e:
             logger.warning("HDBSCAN failed for window %s: %s", window, e)
             continue
@@ -88,6 +92,27 @@ def detect_drift(
         if abs(t["delta"]) < 1:
             continue
         direction = "grew" if t["delta"] > 0 else "consolidated"
+
+        evidence: list[EvidenceItem] = []
+        for window in (t["from_window"], t["to_window"]):
+            cluster_content = window_cluster_nodes.get(window, {})
+            for _label, cluster_nodes in cluster_content.items():
+                for node in cluster_nodes[:2]:
+                    if node.node_type != NodeType.ASSERTION:
+                        continue
+                    text = (node.description or node.name or "")[:200]
+                    if not text:
+                        continue
+                    evidence.append(
+                        EvidenceItem(
+                            assertion_node_id=node.id,
+                            assertion_text=text,
+                            source_document_id=str(node.properties.get("source_document_id", "")),
+                            source_url=str(node.properties.get("source_url", "")),
+                            source_tier=int(node.properties.get("source_tier", 2)),
+                        )
+                    )
+
         patterns.append(
             PatternCandidate(
                 pattern_type=PatternType.DRIFT,
@@ -96,6 +121,7 @@ def detect_drift(
                     f"Cluster count moved from {t['prev_clusters']} to {t['curr_clusters']} "
                     f"between {t['from_window']} and {t['to_window']} ({direction})."
                 ),
+                evidence=evidence[:10],
                 blind_spots=[
                     BlindSpot(
                         description=f"Analysis covers {len(bins)} year bins only.",

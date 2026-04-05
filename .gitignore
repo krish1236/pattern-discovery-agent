@@ -79,8 +79,10 @@ tmp/
 temp/
 *.tmp
 
-# Documentation build outputs (keep tracked: docs/*.md sources)
-docs/_build/
+# Project docs (local notes; not versioned)
+docs/
+
+# Documentation build outputs (if any live outside docs/)
 site/
 .doctrees/
 
