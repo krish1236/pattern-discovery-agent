@@ -78,6 +78,25 @@ class TestParseExtraction:
             assert edge.meta.source_family == "scholarly"
             assert edge.meta.domain == "research"
 
+    def test_precomputed_embedding_copied_to_source_document_node(self) -> None:
+        vec = [0.25, -0.5, 0.125]
+        doc = SourceDocument(
+            id="doc_emb",
+            source_id="W1",
+            source_family="scholarly",
+            source_url="https://example.com",
+            title="T",
+            abstract="Abstract text here.",
+            source_tier=1,
+            domain="research",
+            precomputed_embedding=vec,
+        )
+        raw = {"assertions": [], "entities": [], "relationships": []}
+        result = _parse_extraction(raw, doc, self.schema)
+        src = next(n for n in result.nodes if n.node_type == NodeType.SOURCE_DOCUMENT)
+        assert src.embedding == vec
+        assert src.embedding is not doc.precomputed_embedding
+
 
 @pytest.mark.asyncio
 async def test_extract_batch_empty_skips_llm() -> None:

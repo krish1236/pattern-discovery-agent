@@ -72,6 +72,10 @@ def _parse_extraction(
     edges: list[Edge] = []
     node_name_to_id: dict[str, str] = {}
 
+    specter: list[float] | None = None
+    if doc.precomputed_embedding:
+        specter = list(doc.precomputed_embedding)
+
     doc_node = Node(
         id=doc.id,
         node_type=NodeType.SOURCE_DOCUMENT,
@@ -83,6 +87,7 @@ def _parse_extraction(
             "publication_date": doc.publication_date or "",
             "source_tier": doc.source_tier,
         },
+        embedding=specter,
     )
     nodes.append(doc_node)
 

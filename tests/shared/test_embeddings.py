@@ -26,8 +26,24 @@ def reset_embedding_model() -> None:
     import src.shared.embeddings as emb
 
     emb._model = None
+    emb.clear_embedding_cache()
     yield
     emb._model = None
+    emb.clear_embedding_cache()
+
+
+@patch("sentence_transformers.SentenceTransformer")
+def test_embed_texts_cache_hits_skip_second_encode(mock_st_class) -> None:
+    import src.shared.embeddings as emb
+
+    inst = MagicMock()
+    inst.encode.return_value = np.ones((1, 5))
+    mock_st_class.return_value = inst
+    emb._model = None
+    emb.clear_embedding_cache()
+    emb.embed_texts(["same text twice"])
+    emb.embed_texts(["same text twice"])
+    assert inst.encode.call_count == 1
 
 
 @patch("sentence_transformers.SentenceTransformer")

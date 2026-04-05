@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from itertools import combinations
 from typing import Any
 
@@ -13,6 +15,8 @@ from src.core.types import BlindSpot, EvidenceItem, Node, NodeType, PatternCandi
 from src.shared.embeddings import cosine_similarity
 
 logger = logging.getLogger(__name__)
+
+CONTRADICTION_REFINE_MODEL = "claude-3-5-sonnet-20241022"
 
 _nli_model: Any = None
 
@@ -156,3 +160,100 @@ def detect_contradictions(
 
     logger.info("Produced %s contradiction pattern candidates", len(patterns))
     return patterns
+
+
+def _parse_refine_json(text: str) -> dict[str, Any]:
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```\s*$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", text)
+        if m:
+            return json.loads(m.group(0))
+        raise
+
+
+async def refine_contradiction_candidates(
+    candidates: list[PatternCandidate],
+    contradiction_template: str,
+    api_key: str,
+) -> list[PatternCandidate]:
+    """LLM second pass: filter apparent contradictions; annotate real/conditional."""
+    if not api_key or not (contradiction_template or "").strip():
+        return candidates
+
+    import anthropic
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    refined: list[PatternCandidate] = []
+
+    for p in candidates:
+        if p.pattern_type != PatternType.CONTRADICTION:
+            refined.append(p)
+            continue
+
+        tx_a = p.evidence[0].assertion_text if p.evidence else ""
+        tx_b = p.counter_evidence[0].assertion_text if p.counter_evidence else ""
+        url_a = p.evidence[0].source_url if p.evidence else "unknown"
+        url_b = p.counter_evidence[0].source_url if p.counter_evidence else "unknown"
+
+        scenario = contradiction_template.format(
+            assertion_a=tx_a,
+            assertion_b=tx_b,
+            source_a=url_a,
+            source_b=url_b,
+        )
+        user_msg = (
+            f"{scenario}\n\n"
+            "Respond ONLY with JSON (no markdown fences): "
+            '{"classification":"real"|"apparent"|"conditional",'
+            '"reasoning":"one or two sentences",'
+            '"conditions_for_claim_a":"when claim A holds, if any",'
+            '"conditions_for_claim_b":"when claim B holds, if any"}'
+        )
+
+        try:
+            resp = await client.messages.create(
+                model=CONTRADICTION_REFINE_MODEL,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            verdict = _parse_refine_json(resp.content[0].text)
+        except (json.JSONDecodeError, anthropic.APIError, KeyError, IndexError, TypeError) as e:
+            logger.warning("Contradiction LLM refine failed, keeping NLI candidate: %s", e)
+            refined.append(p)
+            continue
+
+        cls_raw = str(verdict.get("classification", "")).lower().strip()
+        if cls_raw in ("apparent", "non_contradiction", "not_contradictory", "none", "no"):
+            logger.info("LLM classified contradiction as apparent; dropping candidate")
+            continue
+
+        reasoning = str(verdict.get("reasoning", "")).strip()
+        cond_a = str(verdict.get("conditions_for_claim_a", "")).strip()
+        cond_b = str(verdict.get("conditions_for_claim_b", "")).strip()
+
+        details = dict(p.details or {})
+        details["llm_contradiction_classification"] = cls_raw or "unknown"
+        details["llm_contradiction_reasoning"] = reasoning
+        if cond_a:
+            details["conditions_for_claim_a"] = cond_a
+        if cond_b:
+            details["conditions_for_claim_b"] = cond_b
+
+        suffix = f" LLM review ({cls_raw}): {reasoning}" if reasoning else f" LLM review: {cls_raw}."
+        p.details = details
+        p.measured_pattern = (p.measured_pattern or "") + suffix
+        p.blind_spots = [
+            *list(p.blind_spots or []),
+            BlindSpot(
+                description="LLM second pass: apparent vs real contradiction.",
+                severity="minor",
+            ),
+        ]
+        refined.append(p)
+
+    return refined

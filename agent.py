@@ -16,7 +16,8 @@ import os
 from agent_runtime import AgentRuntime
 
 from src.core.graph import KnowledgeGraph
-from src.core.patterns import detect_bridges, detect_contradictions, detect_drift, detect_gaps
+from src.core.patterns import detect_bridges, detect_drift, detect_gaps
+from src.core.patterns.contradictions import detect_contradictions, refine_contradiction_candidates
 from src.core.report import (
     generate_coverage_markdown,
     generate_evidence_table,
@@ -309,7 +310,11 @@ async def run(ctx, input):  # noqa: ANN001
                 candidates.extend(detect_bridges(graph))
             if focus in ("contradictions", "all"):
                 try:
-                    candidates.extend(detect_contradictions(graph))
+                    cd = detect_contradictions(graph)
+                    tpl = pack.get_schema().interpretation_templates.get("contradiction", "")
+                    if api_key and tpl:
+                        cd = await refine_contradiction_candidates(cd, tpl, api_key)
+                    candidates.extend(cd)
                 except Exception as e:
                     ctx.log(f"Contradiction mining failed: {e}", level="warning")
             if focus in ("drift", "all"):
