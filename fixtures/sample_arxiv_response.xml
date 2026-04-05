@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2401.00001v1</id>
+    <title>Fixture arXiv Title</title>
+    <summary>Fixture abstract for tests.</summary>
+    <published>2024-01-01T00:00:00Z</published>
+    <author><name>C. Author</name></author>
+    <arxiv:primary_category term="cs.AI"/>
+  </entry>
+</feed>

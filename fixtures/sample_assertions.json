@@ -1,0 +1,7 @@
+{
+  "assertions": [
+    { "text": "Method X improves accuracy under condition Y.", "polarity": "positive" }
+  ],
+  "entities": [{ "name": "Method X", "entity_type": "concept", "description": "A method" }],
+  "relationships": []
+}

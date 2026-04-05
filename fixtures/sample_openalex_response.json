@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "id": "https://openalex.org/W123",
+      "title": "Fixture work",
+      "abstract_inverted_index": { "Fixture": [0], "work": [1] },
+      "publication_date": "2024-01-01",
+      "cited_by_count": 10,
+      "type": "journal-article",
+      "authorships": [{ "author": { "display_name": "A. Author" } }],
+      "primary_location": {},
+      "concepts": [{ "display_name": "Computer Science" }],
+      "doi": "10.1234/fixture",
+      "is_oa": true
+    }
+  ]
+}

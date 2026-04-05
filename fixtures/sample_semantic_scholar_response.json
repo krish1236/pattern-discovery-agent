@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "paperId": "fixture_s2_id",
+      "title": "Fixture paper",
+      "abstract": "Abstract for fixture testing.",
+      "year": 2024,
+      "citationCount": 5,
+      "influentialCitationCount": 1,
+      "authors": [{ "name": "B. Author" }],
+      "externalIds": { "DOI": "10.1234/fixture2" },
+      "publicationDate": "2024-02-01",
+      "tldr": { "text": "Fixture TLDR" }
+    }
+  ]
+}

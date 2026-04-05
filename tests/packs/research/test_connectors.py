@@ -1,5 +1,8 @@
 """Connector parsing tests (offline)."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from src.core.types import SourceDocument
@@ -66,6 +69,15 @@ class TestSemanticScholarParsing:
         assert doc.title == "Minimal"
         assert doc.abstract == ""
         assert doc.precomputed_embedding is None
+
+
+class TestFixtureFiles:
+    def test_openalex_fixture_parses(self) -> None:
+        path = Path(__file__).resolve().parents[3] / "fixtures" / "sample_openalex_response.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        work = data["results"][0]
+        doc = _parse_work(work)
+        assert doc.title == "Fixture work"
 
 
 class TestConnectorInterface:

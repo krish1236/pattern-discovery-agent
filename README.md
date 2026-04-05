@@ -1,49 +1,89 @@
 # Pattern Discovery Agent
 
-A domain-agnostic, graph-oriented pattern discovery engine designed to run on [RunForge](https://runforge.sh). It ingests sources, builds a typed knowledge graph with provenance, runs algorithmic detectors (bridges, contradictions, temporal drift, gaps), and is intended to surface evidence-backed findings—not generic summaries.
+A domain-agnostic, graph-oriented pattern discovery engine for [RunForge](https://runforge.sh). It ingests sources, builds a typed knowledge graph with provenance, runs detectors (bridges, contradictions, temporal drift, gaps), and produces evidence-backed artifacts rather than generic summaries.
 
-The **research / technical** domain pack is implemented first (OpenAlex, Semantic Scholar, arXiv, optional GitHub and Tavily). The **core type system and pipeline contracts** are domain-neutral so additional packs can be added without changing the graph and verification layers.
+The **research** domain pack covers scholarly and technical sources (OpenAlex, Semantic Scholar, arXiv, optional GitHub and Tavily). The **core type system and pipeline** stay domain-neutral so you can add packs without rewriting graph construction, verification, or reporting.
 
-## Documentation
+## Architecture
 
-| Document | Purpose |
-|----------|---------|
-| [docs/PATTERN_DISCOVERY_AGENT_ARCHITECTURE.md](docs/PATTERN_DISCOVERY_AGENT_ARCHITECTURE.md) | End-to-end architecture, type system, pattern algorithms, RunForge integration |
-| [docs/PATTERN_DISCOVERY_IMPLEMENTATION_PART1.md](docs/PATTERN_DISCOVERY_IMPLEMENTATION_PART1.md) | Phases 1–5: types, domain pack, connectors, corpus, extraction |
-| [docs/PATTERN_DISCOVERY_IMPLEMENTATION_PART2.md](docs/PATTERN_DISCOVERY_IMPLEMENTATION_PART2.md) | Phases 6–10: graph, miners, verifier, report, full `agent.py` |
+The engine is **graph-first**: pattern candidates come from algorithms (community structure, NLI, temporal clustering, graph queries), not from free-form LLM “insights.” The LLM **extracts** raw text into typed nodes and edges, and helps **narrate** verified results. Every promoted finding must pass a **verification gate** (evidence count, source diversity, tier rules, confidence).
 
-## Current implementation status
+A **domain pack** supplies connectors, extraction prompts, and domain entity hints. The **core** only sees universal node and edge types, provenance metadata, and the same miners and verifier regardless of domain.
 
-**Implemented**
+### System layers
 
-- Universal types (`src/core/types.py`): nodes, edges, `EdgeMeta`, `SourceDocument`, extraction and pattern artifacts
-- Domain pack interface (`src/domain_pack.py`) and **research pack** (`src/packs/research/`)
-- Source connectors: OpenAlex, Semantic Scholar, arXiv, GitHub (token), Tavily web search (API key)
-- Corpus helpers: deduplication, expansion hook, tier assignment, stats (`src/shared/corpus.py`)
-- Embeddings utilities: MiniLM via sentence-transformers (`src/shared/embeddings.py`)
-- LLM batch extraction into universal nodes/edges, with assertion provenance for downstream evidence (`src/shared/extraction.py`)
-- Unit tests for types, research schema/router/pack, connector parsing, corpus, extraction
-- `KnowledgeGraph` (`src/core/graph.py`): NetworkX graph, entity resolution, multi-edge storage, JSON round-trip, stats
-- Tests: `tests/core/test_graph.py`
-- RunForge entrypoint (`agent.py`): topic classification and source routing steps wired; full ingest → graph → mine → verify → artifacts to be connected per Part 2
+```mermaid
+flowchart TB
+  subgraph CORE["Domain-agnostic core"]
+    direction TB
+    UT[Universal type system]
+    GB[Graph builder]
+    PE[Pattern engine]
+    VG[Verifier and promotion gate]
+    RG[Report generator]
+    UT -.-> GB
+    GB --> PE --> VG --> RG
+  end
+  subgraph PACK["Domain pack"]
+    direction TB
+    CO[Source connectors]
+    PR[Extraction prompts]
+    SC[Domain entity schema]
+  end
+  CO -->|SourceDocument| GB
+  PR --> GB
+  SC --> GB
+  RG --> OUT[Artifacts to storage]
+```
 
-**Not yet wired in this repository**
+### End-to-end pipeline
 
-- Pattern detectors (bridges, contradictions, drift, gaps), promotion gate, report/HTML graph artifacts, and end-to-end `safe_step` sequence as specified in Part 2 of the implementation docs
+```mermaid
+flowchart TB
+  T[Topic input] --> DC[Domain classifier selects pack]
+  DC --> SR[Source router budgets and APIs]
+  SR --> ING[Corpus ingest]
+  ING --> EXP[Corpus expand dedupe tiers]
+  EXP --> EXT[LLM structured extraction]
+  EXT --> GB[Graph build and entity resolution]
+  GB --> PM[Pattern mining]
+  PM --> BR[Bridges cross-community]
+  PM --> CT[Contradictions NLI]
+  PM --> DR[Temporal drift clusters]
+  PM --> GP[Structural gaps]
+  BR --> VF[Verify promotion gate]
+  CT --> VF
+  DR --> VF
+  GP --> VF
+  VF --> RP[Report evidence and coverage]
+```
+
+## What it includes
+
+- **Types** (`src/core/types.py`): nodes, edges, provenance metadata, documents, extraction and pattern artifacts
+- **Domain packs** (`src/domain_pack.py`, `src/packs/research/`): schema, routing, and pack-specific extraction prompts
+- **Connectors**: OpenAlex, Semantic Scholar, arXiv, GitHub (token), Tavily (API key); sample responses under `fixtures/` for tests
+- **Corpus and NLP** (`src/shared/`): deduplication and tiering, sentence embeddings, batched LLM extraction into graph-shaped nodes and edges
+- **Graph** (`src/core/graph.py`): `KnowledgeGraph` with entity resolution, multi-edge storage, JSON serialization, statistics
+- **Pattern mining** (`src/core/patterns/`): bridge detection, contradiction scoring (NLI), temporal drift (clustering over time), structural gaps
+- **Verification** (`src/core/verifier.py`): promotion rules and batch verification
+- **Reporting** (`src/core/report.py`): markdown summaries, evidence JSON, optional D3-style graph HTML
+- **RunForge entrypoint** (`agent.py`): ingest → expand → extract (skipped if no LLM key) → graph → embeddings → mine → verify → writes to `ctx.storage`; merges trigger `input` with `ctx.inputs`
 
 ## Repository layout
 
 ```
 pattern-discovery/
 ├── agent.py                 # RunForge entrypoint
-├── agent.yaml               # Agent manifest for RunForge
+├── agent.yaml               # Agent manifest
 ├── pyproject.toml
 ├── requirements.txt
-├── docs/                    # Architecture and phased implementation specs
+├── docs/
+├── fixtures/                # Sample API responses for tests
 ├── src/
-│   ├── core/                # Types (graph/patterns/verifier/report added in Part 2)
+│   ├── core/                # types, graph, patterns/, verifier, report
 │   ├── domain_pack.py
-│   ├── packs/research/      # Schema, router, connectors, ResearchPack
+│   ├── packs/research/
 │   └── shared/              # corpus, embeddings, extraction
 └── tests/
 ```
@@ -51,27 +91,25 @@ pattern-discovery/
 ## Requirements
 
 - Python **3.11+**
-- [agent-runtime](https://pypi.org/project/agent-runtime/) (declared as `>=0.0.1` on PyPI). If you rely on APIs newer than the published package, install a local checkout first, for example:
+- [agent-runtime](https://pypi.org/project/agent-runtime/) (`>=0.0.1` on PyPI). For unpublished APIs, install a local checkout:
 
   ```bash
   pip install -e ../agent-runtime
   ```
 
-Heavy optional runtime dependencies (pull in PyTorch via sentence-transformers): see `pyproject.toml`.
+Sentence-transformers pulls in PyTorch; see `pyproject.toml` for the full dependency set.
 
 ## Environment variables
 
 | Variable | Required | Role |
 |----------|----------|------|
-| `ANTHROPIC_API_KEY` | Yes, for extraction | Claude Haiku (extraction) |
-| `OPENALEX_API_KEY` | No | OpenAlex (if using authenticated usage) |
-| `SEMANTIC_SCHOLAR_API_KEY` | No | Higher S2 rate limits |
+| `ANTHROPIC_API_KEY` | For LLM extraction | Claude (extraction step) |
+| `OPENALEX_API_KEY` | No | OpenAlex authenticated usage |
+| `SEMANTIC_SCHOLAR_API_KEY` | No | Higher Semantic Scholar rate limits |
 | `GITHUB_TOKEN` | No | GitHub search quota |
 | `TAVILY_API_KEY` | No | Web search connector |
 
 ## Local development
-
-Create a virtual environment and install the package with dev tools:
 
 ```bash
 cd pattern-discovery
@@ -80,13 +118,13 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-Run tests (fast path, no live APIs or slow model-heavy cases):
+Run the default test selection (excludes `slow`):
 
 ```bash
-PYTHONPATH=. pytest tests/core/test_types.py tests/packs/research/ tests/shared/ -v
+PYTHONPATH=. pytest tests/ -m "not slow" -q
 ```
 
-Optional markers (when you add them to tests): `-m "not slow and not live and not integration"`.
+Pytest markers: `slow` (model download or heavy compute), `live` (real HTTP, when used), `integration` (light smoke). Stricter example: `-m "not slow and not live and not integration"`.
 
 ## Running the agent locally
 
@@ -94,7 +132,7 @@ Optional markers (when you add them to tests): `-m "not slow and not live and no
 python -m agent_runtime dev agent:run
 ```
 
-Ensure `agent.yaml` `entrypoint` matches your module (`agent:run`). Subscriber-style inputs are merged from both the trigger payload and `ctx.inputs` (dashboard experience layer), for example:
+Match `agent.yaml` `entrypoint` to your module (`agent:run`). Inputs from the trigger payload and `ctx.inputs` are merged. Example payload:
 
 ```json
 {
@@ -108,8 +146,8 @@ Ensure `agent.yaml` `entrypoint` matches your module (`agent:run`). Subscriber-s
 
 ## License
 
-MIT (see architecture doc; add a `LICENSE` file when you publish).
+MIT. Add a `LICENSE` file when you publish.
 
 ## Contributing
 
-Follow the phased plan in `docs/PATTERN_DISCOVERY_IMPLEMENTATION_PART2.md` for graph construction, pattern mining, verifier, reports, and full RunForge `ctx.storage` / `ctx.artifact` integration.
+Changes that touch behavior should include or update tests under `tests/`.
