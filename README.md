@@ -23,11 +23,13 @@ The **research / technical** domain pack is implemented first (OpenAlex, Semanti
 - Embeddings utilities: MiniLM via sentence-transformers (`src/shared/embeddings.py`)
 - LLM batch extraction into universal nodes/edges, with assertion provenance for downstream evidence (`src/shared/extraction.py`)
 - Unit tests for types, research schema/router/pack, connector parsing, corpus, extraction
+- `KnowledgeGraph` (`src/core/graph.py`): NetworkX graph, entity resolution, multi-edge storage, JSON round-trip, stats
+- Tests: `tests/core/test_graph.py`
 - RunForge entrypoint (`agent.py`): topic classification and source routing steps wired; full ingest → graph → mine → verify → artifacts to be connected per Part 2
 
 **Not yet wired in this repository**
 
-- `KnowledgeGraph` (NetworkX), four pattern detectors, promotion gate, report/HTML graph artifacts, and end-to-end `safe_step` sequence as specified in Part 2 of the implementation docs
+- Pattern detectors (bridges, contradictions, drift, gaps), promotion gate, report/HTML graph artifacts, and end-to-end `safe_step` sequence as specified in Part 2 of the implementation docs
 
 ## Repository layout
 
