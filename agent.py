@@ -198,6 +198,8 @@ async def run(ctx, input):  # noqa: ANN001
     with ctx.safe_step("expand_corpus"):
         if skip_through_build:
             ctx.log("Resume: skipped corpus expansion")
+        elif len(all_docs) == 0:
+            ctx.log("Skipped corpus expansion (empty corpus)")
         else:
             connectors = pack.get_connectors(config)
             try:
@@ -393,6 +395,7 @@ async def run(ctx, input):  # noqa: ANN001
                 "documents_analyzed": len(all_docs),
                 "graph_nodes": graph.node_count,
                 "graph_edges": graph.edge_count,
+                "empty_corpus": bool(ctx.state.get("empty_corpus")),
             }
         )
         def _pattern_result_row(p: PromotedPattern) -> dict[str, str | int]:

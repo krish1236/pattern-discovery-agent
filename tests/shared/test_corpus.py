@@ -1,7 +1,9 @@
 """Corpus manager tests."""
 
+import pytest
+
 from src.core.types import SourceDocument
-from src.shared.corpus import corpus_stats, deduplicate
+from src.shared.corpus import corpus_stats, deduplicate, expand_corpus
 
 
 class TestDedup:
@@ -56,3 +58,9 @@ class TestCorpusStats:
         assert stats["total_documents"] == 4
         assert stats["documents_per_tier"][1] == 2
         assert stats["documents_per_tier"][2] == 1
+
+
+@pytest.mark.asyncio
+async def test_expand_corpus_empty_returns_immediately() -> None:
+    out = await expand_corpus([], [], budget=10)
+    assert out == []
