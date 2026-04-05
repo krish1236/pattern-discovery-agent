@@ -1,0 +1,7 @@
+name: pattern-discovery
+entrypoint: agent:run
+python_version: "3.11"
+browser: false
+run_timeout_minutes: 60
+max_concurrency: 2
+tools: []

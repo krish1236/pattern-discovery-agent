@@ -1,0 +1,85 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+.python-version
+
+# Environment and secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Packaging / build
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+*.egg
+MANIFEST
+
+# Test / coverage / type check / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Downloaded models and heavy ML caches (local dev)
+.cache/
+*.pt
+*.pth
+*.onnx
+*.bin
+~/.cache/huggingface/
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors and IDEs
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+.vscode/
+
+# Logs and local scratch
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# Documentation build outputs (keep tracked: docs/*.md sources)
+docs/_build/
+site/
+.doctrees/
+
+# RunForge / local agent runtime storage (if created under project)
+.agent_runtime/
+
+# macOS resource forks
+._*
