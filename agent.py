@@ -117,6 +117,8 @@ async def run(ctx, input):  # noqa: ANN001
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     config = {
         "OPENALEX_API_KEY": os.environ.get("OPENALEX_API_KEY", ""),
+        "OPENALEX_MAILTO": os.environ.get("OPENALEX_MAILTO", ""),
+        "OPENALEX_EMAIL": os.environ.get("OPENALEX_EMAIL", ""),
         "SEMANTIC_SCHOLAR_API_KEY": os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
         "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
         "TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY", ""),
@@ -209,6 +211,11 @@ async def run(ctx, input):  # noqa: ANN001
             _storage_put(ctx, "documents.json", json.dumps([d.to_dict() for d in all_docs]))
 
     with ctx.safe_step("extract_knowledge"):
+        empty_corpus = len(all_docs) == 0
+        ctx.state["empty_corpus"] = empty_corpus
+        if empty_corpus:
+            ctx.log("Corpus is empty; extraction and graph will have no document content.", level="warning")
+
         if skip_through_build:
             ctx.state["extraction_stats"] = {
                 "nodes": sum(len(r.nodes) for r in results),
@@ -221,7 +228,10 @@ async def run(ctx, input):  # noqa: ANN001
             )
         else:
             schema = pack.get_schema()
-            if not api_key:
+            if empty_corpus:
+                results = []
+                ctx.log("Skipped LLM extraction (empty corpus).")
+            elif not api_key:
                 ctx.log("ANTHROPIC_API_KEY missing; skipping LLM extraction.", level="warning")
                 results = [ExtractionResult(source_document_id=d.id) for d in all_docs]
             else:
@@ -344,6 +354,7 @@ async def run(ctx, input):  # noqa: ANN001
 
         plan_info = ctx.state.get("source_plan") or {}
         run_snapshot: dict = {
+            "empty_corpus": bool(ctx.state.get("empty_corpus")),
             "input": {
                 "topic": topic,
                 "depth": depth,
@@ -369,7 +380,7 @@ async def run(ctx, input):  # noqa: ANN001
 
         ctx.artifact("coverage_report.md", generate_coverage_markdown(coverage), "text/markdown")
 
-        graph_html = generate_graph_html(graph, promoted)
+        graph_html = generate_graph_html(graph, promoted, exploratory)
         ctx.artifact("knowledge_graph.html", graph_html, "text/html")
 
         ctx.results.set_stats(

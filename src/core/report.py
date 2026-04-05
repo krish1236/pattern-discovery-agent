@@ -160,7 +160,11 @@ def generate_coverage_markdown(coverage: CoverageReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_graph_html(graph: KnowledgeGraph, promoted: list[PromotedPattern]) -> str:
+def generate_graph_html(
+    graph: KnowledgeGraph,
+    promoted: list[PromotedPattern],
+    exploratory: list[PromotedPattern] | None = None,
+) -> str:
     communities: dict[str, int] = {}
     try:
         comms = nx.community.louvain_communities(graph.g, seed=42)
@@ -184,7 +188,7 @@ def generate_graph_html(graph: KnowledgeGraph, promoted: list[PromotedPattern]) 
 
     bridge_pairs: set[tuple[str, str]] = set()
     contradiction_pairs: set[tuple[str, str]] = set()
-    for p in promoted:
+    for p in list(promoted) + list(exploratory or []):
         if p.pattern_type == PatternType.BRIDGE:
             nu = p.details.get("bridge_node_u", "")
             nv = p.details.get("bridge_node_v", "")

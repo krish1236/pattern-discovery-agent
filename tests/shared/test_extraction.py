@@ -1,5 +1,7 @@
 """Extraction pipeline tests (no live LLM)."""
 
+import pytest
+
 from src.core.types import EdgeType, NodeType, SourceDocument
 from src.packs.research.schema import get_research_schema
 from src.shared.extraction import _parse_extraction
@@ -75,3 +77,13 @@ class TestParseExtraction:
             assert edge.meta.source_tier == 1
             assert edge.meta.source_family == "scholarly"
             assert edge.meta.domain == "research"
+
+
+@pytest.mark.asyncio
+async def test_extract_batch_empty_skips_llm() -> None:
+    from src.packs.research.schema import get_research_schema
+    from src.shared.extraction import extract_batch
+
+    schema = get_research_schema()
+    out = await extract_batch([], schema)
+    assert out == []

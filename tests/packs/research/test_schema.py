@@ -62,6 +62,14 @@ class TestResearchRouter:
         assert len(plan.queries) >= 2
 
 
+def test_openalex_connector_receives_mailto_from_config() -> None:
+    pack = ResearchPack()
+    connectors = pack.get_connectors({"OPENALEX_MAILTO": "dev@example.org"})
+    oa = connectors[0]
+    assert oa.__class__.__name__ == "OpenAlexConnector"
+    assert oa.email == "dev@example.org"
+
+
 class TestResearchPack:
     def test_domain_is_research(self) -> None:
         pack = ResearchPack()

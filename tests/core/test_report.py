@@ -2,9 +2,11 @@
 
 import json
 
+from src.core.graph import KnowledgeGraph
 from src.core.report import (
     generate_coverage_markdown,
     generate_evidence_table,
+    generate_graph_html,
     generate_pattern_report,
     generate_patterns_summary,
     generate_run_summary,
@@ -76,6 +78,12 @@ def test_generate_patterns_summary() -> None:
     assert "Passed" in raw
     assert "Low evidence" in raw
     assert "counter_evidence_count" in raw
+
+
+def test_generate_graph_html_accepts_exploratory() -> None:
+    g = KnowledgeGraph()
+    html = generate_graph_html(g, [], [])
+    assert "d3" in html.lower() or "D3" in html
 
 
 def test_generate_run_summary_roundtrip() -> None:

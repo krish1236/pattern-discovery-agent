@@ -26,8 +26,9 @@ class ResearchPack(DomainPack):
         from src.packs.research.connectors.semantic_scholar import SemanticScholarConnector
         from src.packs.research.connectors.web_search import WebSearchConnector
 
+        oa_mail = config.get("OPENALEX_MAILTO") or config.get("OPENALEX_EMAIL", "")
         connectors: list[SourceConnector] = [
-            OpenAlexConnector(api_key=config.get("OPENALEX_API_KEY", "")),
+            OpenAlexConnector(api_key=config.get("OPENALEX_API_KEY", ""), email=str(oa_mail or "")),
             SemanticScholarConnector(api_key=config.get("SEMANTIC_SCHOLAR_API_KEY", "")),
             ArxivConnector(),
         ]

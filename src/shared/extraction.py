@@ -173,6 +173,9 @@ async def extract_batch(
     schema: DomainSchema,
     api_key: str | None = None,
 ) -> list[ExtractionResult]:
+    if not documents:
+        return []
+
     api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not set")
