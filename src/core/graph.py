@@ -154,9 +154,12 @@ class KnowledgeGraph:
             if existing.embedding is None or len(new_node.embedding) > len(existing.embedding or []):
                 existing.embedding = new_node.embedding
 
-    def to_json(self) -> str:
+    def to_json(self, *, include_embeddings: bool = False) -> str:
         data: dict[str, Any] = {
-            "nodes": [node.to_dict() for node in self._node_registry.values()],
+            "nodes": [
+                node.to_dict(include_embedding=include_embeddings)
+                for node in self._node_registry.values()
+            ],
             "edges": [],
         }
         for _u, _v, edge_data in self.g.edges(data=True):

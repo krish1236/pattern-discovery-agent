@@ -111,6 +111,17 @@ class TestNode:
         d = node.to_dict()
         assert "embedding" not in d
 
+    def test_embedding_serializes_when_requested(self) -> None:
+        node = Node(
+            node_type=NodeType.CONCEPT,
+            name="attention",
+            embedding=[0.1, 0.2, 0.3],
+        )
+        d = node.to_dict(include_embedding=True)
+        assert d["embedding"] == [0.1, 0.2, 0.3]
+        restored = Node.from_dict(d)
+        assert restored.embedding == [0.1, 0.2, 0.3]
+
 
 class TestEdge:
     def test_roundtrip_json(self) -> None:

@@ -98,18 +98,27 @@ class Node:
     properties: dict[str, Any] = field(default_factory=dict)
     embedding: list[float] | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_embedding: bool = False) -> dict[str, Any]:
         d = asdict(self)
         d["node_type"] = self.node_type.value
-        d.pop("embedding", None)
+        if include_embedding and self.embedding is not None:
+            d["embedding"] = list(self.embedding)
+        else:
+            d.pop("embedding", None)
         return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Node:
         data = dict(d)
         data["node_type"] = NodeType(data["node_type"])
-        data.pop("embedding", None)
-        return cls(**data)
+        raw_embedding = data.pop("embedding", None)
+        if raw_embedding is not None and not isinstance(raw_embedding, list):
+            raw_embedding = None
+        allowed = set(cls.__dataclass_fields__)
+        kwargs = {k: v for k, v in data.items() if k in allowed}
+        node = cls(**kwargs)
+        node.embedding = raw_embedding
+        return node
 
 
 @dataclass

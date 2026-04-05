@@ -118,13 +118,13 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-Run the default test selection (excludes `slow`):
+Run the default test selection (excludes `slow` and `live`):
 
 ```bash
-PYTHONPATH=. pytest tests/ -m "not slow" -q
+PYTHONPATH=. pytest tests/ -m "not slow and not live" -q
 ```
 
-Pytest markers: `slow` (model download or heavy compute), `live` (real HTTP, when used), `integration` (light smoke). Stricter example: `-m "not slow and not live and not integration"`.
+Pytest markers: `slow` (model download or heavy compute), `live` (real HTTP; set `RUN_LIVE_CONNECTOR_TESTS=1` for `tests/packs/research/test_connectors_live.py`), `integration` (light smoke).
 
 ## Running the agent locally
 
@@ -145,11 +145,11 @@ Match `agent.yaml` `entrypoint` to your module (`agent:run`). Inputs from the tr
 }
 ```
 
-Set `"resume": true` when `ctx.storage` already has `documents.json`, `extraction_results.json`, and `graph.json` from a previous run (same project storage). In that case ingest, expansion, extraction, and graph rebuild are skipped; embeddings are filled in if missing, then mining, verification, and reporting run again.
+Set `"resume": true` when `ctx.storage` already has `documents.json`, `extraction_results.json`, and `graph.json` from a previous run (same project storage). In that case ingest, expansion, extraction, and graph rebuild are skipped. Stored `graph.json` includes node embeddings when written by the agent; any node still missing vectors gets embedded before mining.
 
 ## License
 
-MIT. Add a `LICENSE` file when you publish.
+MIT. See [LICENSE](LICENSE).
 
 ## Contributing
 

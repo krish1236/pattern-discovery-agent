@@ -117,6 +117,31 @@ class TestSerialization:
         assert "nodes" in parsed
         assert "edges" in parsed
 
+    def test_roundtrip_preserves_embeddings_when_enabled(self, empty_graph: KnowledgeGraph) -> None:
+        n = Node(
+            id="emb1",
+            node_type=NodeType.CONCEPT,
+            name="Test",
+            domain="research",
+            embedding=[0.25, 0.5, 0.75],
+        )
+        empty_graph.add_node(n)
+        restored = KnowledgeGraph.from_json(empty_graph.to_json(include_embeddings=True))
+        got = restored.get_node("emb1")
+        assert got is not None
+        assert got.embedding == [0.25, 0.5, 0.75]
+
+    def test_default_json_omits_embeddings(self, empty_graph: KnowledgeGraph) -> None:
+        n = Node(
+            id="emb2",
+            node_type=NodeType.CONCEPT,
+            name="X",
+            embedding=[1.0, 2.0],
+        )
+        empty_graph.add_node(n)
+        parsed = json.loads(empty_graph.to_json())
+        assert "embedding" not in parsed["nodes"][0]
+
 
 class TestStats:
     def test_empty_graph_stats(self, empty_graph: KnowledgeGraph) -> None:

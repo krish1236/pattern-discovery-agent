@@ -260,7 +260,7 @@ async def run(ctx, input):  # noqa: ANN001
             gstats = graph.stats()
             ctx.state["graph_stats"] = gstats
             ctx.log(f"Graph: {gstats['total_nodes']} nodes, {gstats['total_edges']} edges")
-            _storage_put(ctx, "graph.json", graph.to_json())
+            _storage_put(ctx, "graph.json", graph.to_json(include_embeddings=True))
 
     with ctx.safe_step("mine_patterns"):
         _embed_graph_text_nodes(ctx, graph)
