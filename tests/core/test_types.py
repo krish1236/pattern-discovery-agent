@@ -213,6 +213,38 @@ class TestPatternCandidate:
         assert d["pattern_type"] == "contradiction"
         assert d["confidence_level"] == "medium"
 
+    def test_to_dict_from_dict_roundtrip(self) -> None:
+        pattern = PatternCandidate(
+            id="p-fixed",
+            pattern_type=PatternType.GAP,
+            title="Gap test",
+            measured_pattern="A recommends B but no edge",
+            evidence=[
+                EvidenceItem(
+                    assertion_node_id="a1",
+                    assertion_text="x",
+                    source_document_id="d1",
+                    source_url="https://ex.com",
+                    source_tier=1,
+                )
+            ],
+            counter_evidence=[],
+            blind_spots=[BlindSpot(description="sparse", severity="minor")],
+            confidence_score=0.55,
+            confidence_level=ConfidenceLevel.LOW,
+            domain="research",
+            details={"k": 1},
+        )
+        restored = PatternCandidate.from_dict(pattern.to_dict())
+        assert restored.id == "p-fixed"
+        assert restored.pattern_type == PatternType.GAP
+        assert restored.title == "Gap test"
+        assert len(restored.evidence) == 1
+        assert restored.evidence[0].source_url == "https://ex.com"
+        assert restored.blind_spots[0].description == "sparse"
+        assert restored.details == {"k": 1}
+        assert restored.confidence_level == ConfidenceLevel.LOW
+
 
 class TestDomainAgnosticism:
     def test_node_types_are_generic(self) -> None:

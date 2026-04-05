@@ -187,12 +187,22 @@ class EvidenceItem:
     source_tier: int
     role: str = "supports"
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> EvidenceItem:
+        data = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        return cls(**data)
+
 
 @dataclass
 class BlindSpot:
     description: str
     severity: str = "moderate"
     missing_source_family: str | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> BlindSpot:
+        data = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        return cls(**data)
 
 
 @dataclass
@@ -227,6 +237,28 @@ class PatternCandidate:
         if self.confidence_level:
             d["confidence_level"] = self.confidence_level.value
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> PatternCandidate:
+        data = dict(d)
+        pattern_type = PatternType(data.pop("pattern_type"))
+        raw_cl = data.pop("confidence_level", None)
+        confidence_level = ConfidenceLevel(raw_cl) if raw_cl else None
+        evidence = [EvidenceItem.from_dict(x) for x in data.pop("evidence", [])]
+        counter_evidence = [EvidenceItem.from_dict(x) for x in data.pop("counter_evidence", [])]
+        blind_spots = [BlindSpot.from_dict(x) for x in data.pop("blind_spots", [])]
+        details = data.pop("details", None) or {}
+        allowed = set(cls.__dataclass_fields__)
+        kwargs = {k: v for k, v in data.items() if k in allowed}
+        return cls(
+            pattern_type=pattern_type,
+            confidence_level=confidence_level,
+            evidence=evidence,
+            counter_evidence=counter_evidence,
+            blind_spots=blind_spots,
+            details=details,
+            **kwargs,
+        )
 
 
 @dataclass

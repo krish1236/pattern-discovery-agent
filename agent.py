@@ -2,6 +2,9 @@
 Pattern Discovery Agent — RunForge entry point.
 
 Orchestrates ingest, extraction, graph build, pattern mining, verification, and artifacts.
+
+Payload flags (merged with ``ctx.inputs``) include ``resume``, ``remine_patterns``, ``domain``,
+``focus``, ``depth``, ``topic``, and ``max_documents``; see implementation in ``run`` below.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from src.core.report import (
     generate_pattern_report,
 )
 from src.checkpoint import load_checkpoint_from_blobs
-from src.core.types import ConfidenceLevel, CoverageReport, ExtractionResult
+from src.core.types import ConfidenceLevel, CoverageReport, ExtractionResult, PatternCandidate
 from src.core.verifier import verify_all
 from src.pack_registry import resolve_domain_pack
 from src.packs.research.router import build_source_plan
@@ -265,22 +268,37 @@ async def run(ctx, input):  # noqa: ANN001
             _storage_put(ctx, "graph.json", graph.to_json(include_embeddings=True))
 
     with ctx.safe_step("mine_patterns"):
-        _embed_graph_text_nodes(ctx, graph)
-        candidates = []
-        if focus in ("bridges", "all"):
-            candidates.extend(detect_bridges(graph))
-        if focus in ("contradictions", "all"):
-            try:
-                candidates.extend(detect_contradictions(graph))
-            except Exception as e:
-                ctx.log(f"Contradiction mining failed: {e}", level="warning")
-        if focus in ("drift", "all"):
-            try:
-                candidates.extend(detect_drift(graph))
-            except Exception as e:
-                ctx.log(f"Drift mining failed: {e}", level="warning")
-        if focus in ("gaps", "all"):
-            candidates.extend(detect_gaps(graph))
+        candidates: list[PatternCandidate] = []
+        remine = bool(payload.get("remine_patterns"))
+        if skip_through_build and not remine:
+            raw_c = _storage_get_file(ctx, "pattern_candidates.json")
+            if raw_c:
+                try:
+                    arr = json.loads(raw_c.decode("utf-8"))
+                    candidates = [PatternCandidate.from_dict(x) for x in arr]
+                    ctx.log(
+                        f"Resume: using {len(candidates)} pattern candidates from storage "
+                        "(set remine_patterns to re-run miners)"
+                    )
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+                    ctx.log(f"Could not load pattern_candidates.json: {e}", level="warning")
+
+        if not candidates:
+            _embed_graph_text_nodes(ctx, graph)
+            if focus in ("bridges", "all"):
+                candidates.extend(detect_bridges(graph))
+            if focus in ("contradictions", "all"):
+                try:
+                    candidates.extend(detect_contradictions(graph))
+                except Exception as e:
+                    ctx.log(f"Contradiction mining failed: {e}", level="warning")
+            if focus in ("drift", "all"):
+                try:
+                    candidates.extend(detect_drift(graph))
+                except Exception as e:
+                    ctx.log(f"Drift mining failed: {e}", level="warning")
+            if focus in ("gaps", "all"):
+                candidates.extend(detect_gaps(graph))
 
         ctx.state["pattern_stats"] = {"candidates": len(candidates)}
         ctx.log(f"Pattern mining: {len(candidates)} candidates")
