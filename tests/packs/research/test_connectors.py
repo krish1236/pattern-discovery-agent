@@ -38,7 +38,21 @@ class TestOpenAlexParsing:
         assert doc.abstract == "A test"
         assert doc.source_family == "scholarly"
         assert doc.source_tier == 1
+        assert doc.metadata.get("is_peer_reviewed") is True
         assert "Alice" in doc.authors
+
+    def test_parse_work_proceedings_peer_reviewed(self) -> None:
+        work = {
+            "id": "https://openalex.org/W99",
+            "title": "NeurIPS Paper",
+            "type": "proceedings-article",
+            "publication_date": "2023-12-01",
+            "cited_by_count": 5,
+            "authorships": [],
+        }
+        doc = _parse_work(work)
+        assert doc.metadata.get("is_peer_reviewed") is True
+        assert doc.metadata.get("source_type") == "journal"
 
 
 class TestSemanticScholarParsing:

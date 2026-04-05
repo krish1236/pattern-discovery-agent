@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from itertools import combinations
 from typing import Any
@@ -16,7 +17,9 @@ from src.shared.embeddings import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
-CONTRADICTION_REFINE_MODEL = "claude-3-5-sonnet-20241022"
+CONTRADICTION_REFINE_MODEL = os.environ.get(
+    "ANTHROPIC_CONTRADICTION_MODEL", "claude-sonnet-4-6"
+)
 
 _nli_model: Any = None
 
@@ -52,14 +55,17 @@ def _classify_nli(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
 
     results: list[dict[str, Any]] = []
     for row in arr:
-        idx = int(np.argmax(row))
+        row_f = row.astype(np.float64)
+        exp_scores = np.exp(row_f - np.max(row_f))
+        probs = exp_scores / exp_scores.sum()
+        idx = int(np.argmax(probs))
         raw_label = labels[idx]
         norm = str(raw_label).lower()
         results.append(
             {
                 "label": norm,
-                "confidence": float(row[idx]),
-                "scores": {str(labels[i]).lower(): float(row[i]) for i in range(len(labels))},
+                "confidence": float(probs[idx]),
+                "scores": {str(labels[i]).lower(): float(probs[i]) for i in range(len(labels))},
             }
         )
     return results
@@ -79,7 +85,11 @@ def detect_contradictions(
 
     candidate_pairs: list[tuple[Node, Node, float]] = []
     for a, b in combinations(with_emb, 2):
-        sim = cosine_similarity(np.asarray(a.embedding), np.asarray(b.embedding))
+        ea = np.asarray(a.embedding, dtype=float)
+        eb = np.asarray(b.embedding, dtype=float)
+        if ea.shape != eb.shape or ea.size == 0:
+            continue
+        sim = cosine_similarity(ea, eb)
         if sim >= similarity_threshold:
             candidate_pairs.append((a, b, float(sim)))
 

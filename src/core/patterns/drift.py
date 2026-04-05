@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
+import numpy as np
+
 from src.core.graph import KnowledgeGraph
 from src.core.types import BlindSpot, NodeType, PatternCandidate, PatternType
 from src.shared.embeddings import embed_texts
@@ -43,11 +45,15 @@ def detect_drift(
         if len(texts) < min_cluster_size:
             continue
         try:
-            embeddings = embed_texts(texts)
+            embeddings = np.asarray(embed_texts(texts), dtype=np.float64)
             import hdbscan
 
-            clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="cosine")
-            labels = clusterer.fit_predict(embeddings)
+            # Some hdbscan builds reject metric="cosine"; use precomputed cosine distance.
+            sim = np.dot(embeddings, embeddings.T)
+            dist = (1.0 - np.clip(sim, -1.0, 1.0)).astype(np.float64, copy=False)
+            np.fill_diagonal(dist, 0.0)
+            clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric="precomputed")
+            labels = clusterer.fit_predict(dist)
             clusters: dict[int, set[int]] = defaultdict(set)
             for idx, label in enumerate(labels):
                 if label >= 0:

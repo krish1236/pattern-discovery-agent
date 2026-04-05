@@ -17,8 +17,10 @@ from difflib import SequenceMatcher
 from typing import Any
 
 import networkx as nx
+import numpy as np
 
 from src.core.types import Edge, EdgeType, ExtractionResult, Node, NodeType
+from src.shared.embeddings import cosine_similarity_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +139,7 @@ class KnowledgeGraph:
 
         for existing_name, existing_ids in self._name_index.items():
             similarity = SequenceMatcher(None, normalized, existing_name).ratio()
-            if similarity > 0.85:
+            if similarity > 0.75:
                 for eid in existing_ids:
                     existing = self._node_registry.get(eid)
                     if existing and existing.node_type == node.node_type:
@@ -153,6 +155,101 @@ class KnowledgeGraph:
         if new_node.embedding is not None:
             if existing.embedding is None or len(new_node.embedding) > len(existing.embedding or []):
                 existing.embedding = new_node.embedding
+
+    def _purge_node_id_from_name_index(self, node_id: str) -> None:
+        for key in list(self._name_index.keys()):
+            ids = self._name_index[key]
+            if node_id not in ids:
+                continue
+            kept = [x for x in ids if x != node_id]
+            if kept:
+                self._name_index[key] = kept
+            else:
+                del self._name_index[key]
+
+    def _contract_node_into(self, keep_id: str, drop_id: str) -> None:
+        """Merge drop into keep: rewire edges, drop node from graph and registry."""
+        if keep_id == drop_id or drop_id not in self.g:
+            return
+        drop_node = self._node_registry.get(drop_id)
+        if drop_node is None:
+            return
+        self._merge_node(keep_id, drop_node)
+        self._purge_node_id_from_name_index(drop_id)
+
+        neighbors = list(self.g.neighbors(drop_id))
+        for nb in neighbors:
+            edata = self.g.get_edge_data(drop_id, nb) or {}
+            bundles = list(edata.get("edges", []))
+            self.g.remove_edge(drop_id, nb)
+            for ed in bundles:
+                d = dict(ed)
+                if d.get("source_node_id") == drop_id:
+                    d["source_node_id"] = keep_id
+                if d.get("target_node_id") == drop_id:
+                    d["target_node_id"] = keep_id
+                if d.get("source_node_id") == d.get("target_node_id"):
+                    continue
+                try:
+                    self.add_edge(Edge.from_dict(d))
+                except (KeyError, TypeError, ValueError) as e:
+                    logger.warning(
+                        "Skipping malformed edge when contracting %s into %s: %s",
+                        drop_id,
+                        keep_id,
+                        e,
+                    )
+
+        self.g.remove_node(drop_id)
+        del self._node_registry[drop_id]
+        if keep_id in self.g:
+            self.g.nodes[keep_id].update(self._node_registry[keep_id].to_dict())
+
+    def merge_nodes_by_embedding(self, min_cosine: float = 0.85) -> int:
+        """Post-pass: merge same-type CONCEPT/ARTIFACT pairs with high embedding similarity."""
+        merge_types = {NodeType.CONCEPT, NodeType.ARTIFACT}
+        eligible = [n for n in self._node_registry.values() if n.node_type in merge_types and n.embedding]
+        if len(eligible) < 2:
+            return 0
+
+        ids = [n.id for n in eligible]
+        embs = np.stack([np.asarray(n.embedding, dtype=np.float64) for n in eligible], axis=0)
+        sim = cosine_similarity_matrix(embs)
+        n = len(ids)
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(i: int, j: int) -> None:
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[max(ri, rj)] = min(ri, rj)
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if sim[i, j] >= min_cosine:
+                    union(i, j)
+
+        groups: dict[int, list[int]] = defaultdict(list)
+        for i in range(n):
+            groups[find(i)].append(i)
+
+        merges = 0
+        for idxs in groups.values():
+            if len(idxs) < 2:
+                continue
+            members = sorted({ids[k] for k in idxs})
+            keep = members[0]
+            for drop in members[1:]:
+                if drop not in self._node_registry or keep not in self._node_registry:
+                    continue
+                self._contract_node_into(keep, drop)
+                merges += 1
+        return merges
 
     def to_json(self, *, include_embeddings: bool = False) -> str:
         data: dict[str, Any] = {

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
@@ -55,7 +57,7 @@ def _parse_work(work: dict, domain: str = "research") -> SourceDocument:
             "cited_by_count": work.get("cited_by_count", 0),
             "type": work_type,
             "source_type": source_type,
-            "is_peer_reviewed": source_type == "journal",
+            "is_peer_reviewed": work_type in ("journal-article", "proceedings-article"),
             "concepts": [c.get("display_name", "") for c in work.get("concepts", [])[:5]],
             "is_oa": work.get("is_oa", False),
         },
@@ -89,15 +91,22 @@ class OpenAlexConnector(SourceConnector):
     )
     async def search(self, query: str, limit: int = 20, **kwargs: object) -> list[SourceDocument]:
         client = await self._get_client()
+        # No sort param: OpenAlex defaults to relevance for search. Avoid cited_by_count:desc
+        # (it surfaces unrelated highly-cited papers that merely mention query terms).
         params: dict[str, str | int] = {
             "search": query,
             "per_page": min(limit, 50),
-            "sort": "cited_by_count:desc",
         }
+        filter_parts: list[str] = []
+        concept_id = os.environ.get("OPENALEX_SEARCH_CONCEPT_ID", "").strip()
+        if concept_id:
+            filter_parts.append(f"concepts.id:{concept_id}")
         time_filter = kwargs.get("time_filter")
         if isinstance(time_filter, str) and "-" in time_filter:
             start, end = time_filter.split("-", 1)
-            params["filter"] = f"publication_year:{start.strip()}-{end.strip()}"
+            filter_parts.append(f"publication_year:{start.strip()}-{end.strip()}")
+        if filter_parts:
+            params["filter"] = ",".join(filter_parts)
 
         resp = await client.get("/works", params=params)
         resp.raise_for_status()
@@ -136,7 +145,6 @@ class OpenAlexConnector(SourceConnector):
         params = {
             "filter": f"cites:{source_id}",
             "per_page": min(limit, 50),
-            "sort": "cited_by_count:desc",
         }
         resp = await client.get("/works", params=params)
         resp.raise_for_status()

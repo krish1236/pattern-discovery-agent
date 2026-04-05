@@ -87,6 +87,17 @@ class TestEntityResolution:
         empty_graph.add_node(n2)
         assert empty_graph.node_count == 2
 
+    def test_merge_nodes_by_embedding_collapses_same_vector_different_names(self, empty_graph: KnowledgeGraph) -> None:
+        emb = [1.0, 0.0, 0.0]
+        n1 = Node(node_type=NodeType.CONCEPT, name="Zqxq unrelated alpha", domain="research", embedding=emb)
+        n2 = Node(node_type=NodeType.CONCEPT, name="Mmnn unrelated beta", domain="research", embedding=emb)
+        empty_graph.add_node(n1)
+        empty_graph.add_node(n2)
+        assert empty_graph.node_count == 2
+        merged = empty_graph.merge_nodes_by_embedding(min_cosine=0.99)
+        assert merged == 1
+        assert empty_graph.node_count == 1
+
 
 class TestSerialization:
     def test_roundtrip_json(self, empty_graph: KnowledgeGraph, sample_meta: EdgeMeta) -> None:

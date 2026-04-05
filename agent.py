@@ -37,7 +37,13 @@ from src.core.types import (
 from src.core.verifier import verify_all
 from src.pack_registry import resolve_domain_pack
 from src.packs.research.router import build_source_plan
-from src.shared.corpus import assign_tiers, corpus_stats, deduplicate, expand_corpus
+from src.shared.corpus import (
+    assign_tiers,
+    cap_documents_round_robin_by_family,
+    corpus_stats,
+    deduplicate,
+    expand_corpus,
+)
 from src.shared.embeddings import embed_texts
 from src.shared.extraction import extract_batch
 
@@ -189,7 +195,7 @@ async def run(ctx, input):  # noqa: ANN001
                 await _close_connectors(connectors)
 
             all_docs = deduplicate(all_docs)
-            all_docs = all_docs[:max_documents]
+            all_docs = cap_documents_round_robin_by_family(all_docs, max_documents)
             all_docs = assign_tiers(all_docs, pack)
             stats = corpus_stats(all_docs)
             ctx.state["corpus_stats"] = stats
@@ -270,6 +276,7 @@ async def run(ctx, input):  # noqa: ANN001
     with ctx.safe_step("build_graph"):
         if skip_through_build:
             _embed_graph_text_nodes(ctx, graph)
+            graph.merge_nodes_by_embedding(min_cosine=0.85)
             gstats = graph.stats()
             ctx.state["graph_stats"] = gstats
             ctx.log(
@@ -282,6 +289,9 @@ async def run(ctx, input):  # noqa: ANN001
                 graph.add_extraction_result(result)
 
             _embed_graph_text_nodes(ctx, graph)
+            n_emb_merges = graph.merge_nodes_by_embedding(min_cosine=0.85)
+            if n_emb_merges:
+                ctx.log(f"Graph: merged {n_emb_merges} entity pairs by embedding similarity")
 
             gstats = graph.stats()
             ctx.state["graph_stats"] = gstats
@@ -306,6 +316,7 @@ async def run(ctx, input):  # noqa: ANN001
 
         if not candidates:
             _embed_graph_text_nodes(ctx, graph)
+            graph.merge_nodes_by_embedding(min_cosine=0.85)
             if focus in ("bridges", "all"):
                 candidates.extend(detect_bridges(graph))
             if focus in ("contradictions", "all"):

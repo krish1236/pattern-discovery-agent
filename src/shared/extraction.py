@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import anthropic
@@ -14,8 +15,96 @@ from src.domain_pack import DomainSchema
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_MODEL = "claude-3-5-haiku-20241022"
-MAX_BATCH_SIZE = 5
+# Default: current Haiku (override with ANTHROPIC_EXTRACTION_MODEL)
+EXTRACTION_MODEL = os.environ.get("ANTHROPIC_EXTRACTION_MODEL", "claude-haiku-4-5")
+# Smaller batches + char budget avoid truncated JSON on long web abstracts
+MAX_BATCH_SIZE = 3
+MAX_BATCH_TEXT_CHARS = 12_000
+EXTRACTION_MAX_TOKENS = int(os.environ.get("ANTHROPIC_EXTRACTION_MAX_TOKENS", "8192"))
+
+_FUTURE_WORK_PHRASES = re.compile(
+    r"(future work|remains to be|should be explored|open problem|further research|"
+    r"has not been|promising direction|worth investigating|an open question|"
+    r"worth exploring|important direction)",
+    re.I,
+)
+_MIN_ENTITY_NAME_FOR_RECOMMEND = 4
+
+
+def _message_text(response: Any) -> str:
+    """Concatenate all text blocks (Claude may split long replies across multiple blocks)."""
+    chunks: list[str] = []
+    for block in getattr(response, "content", []) or []:
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                t = block.get("text")
+                if t:
+                    chunks.append(str(t))
+            continue
+        t = getattr(block, "text", None)
+        if t:
+            chunks.append(t)
+    return "".join(chunks).strip()
+
+
+def _extractable_text_len(doc: SourceDocument) -> int:
+    return len(doc.abstract or "") + len(doc.full_text or "")
+
+
+def chunk_documents_for_extraction(documents: list[SourceDocument]) -> list[list[SourceDocument]]:
+    """Split into batches capped by doc count and total text size (prompt + JSON output)."""
+    batches: list[list[SourceDocument]] = []
+    cur: list[SourceDocument] = []
+    used = 0
+    for d in documents:
+        n = _extractable_text_len(d)
+        if cur and (
+            len(cur) >= MAX_BATCH_SIZE
+            or (used + n > MAX_BATCH_TEXT_CHARS and len(cur) > 0)
+        ):
+            batches.append(cur)
+            cur = []
+            used = 0
+        cur.append(d)
+        used += n
+    if cur:
+        batches.append(cur)
+    return batches
+
+
+def _parse_extraction_json_payload(raw_text: str) -> list[dict[str, Any]]:
+    """Parse JSON array (one object per document) from model output; tolerate fences."""
+    t = raw_text.strip()
+    # Strip one or more markdown code fences (models often wrap in ```json ... ```).
+    for _ in range(5):
+        if not t.startswith("```"):
+            break
+        if "\n" in t:
+            t = t.split("\n", 1)[1]
+        else:
+            t = re.sub(r"^```\w*\s*", "", t, count=1)
+        t = t.strip()
+        if t.endswith("```"):
+            t = t[:-3].strip()
+    t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*```\s*$", "", t)
+    t = t.strip()
+    if not t:
+        raise json.JSONDecodeError("Empty model response", t, 0)
+    try:
+        if t.startswith("["):
+            parsed = json.loads(t)
+        else:
+            parsed = [json.loads(t)]
+    except json.JSONDecodeError:
+        m = re.search(r"\[[\s\S]*\]", t)
+        if m:
+            parsed = json.loads(m.group(0))
+        else:
+            raise
+    if not isinstance(parsed, list):
+        raise TypeError("expected JSON array")
+    return [x for x in parsed if isinstance(x, dict)]
 
 
 def _build_batch_prompt(schema: DomainSchema, documents: list[SourceDocument]) -> str:
@@ -147,6 +236,14 @@ def _parse_extraction(
         )
         nodes.append(node)
         node_name_to_id[name] = node.id
+        edges.append(
+            Edge(
+                source_node_id=doc.id,
+                target_node_id=node.id,
+                edge_type=EdgeType.ASSOCIATED_WITH,
+                meta=base_meta,
+            )
+        )
 
     for rel in raw.get("relationships", []):
         source_name = (rel.get("source_name") or "").strip()
@@ -166,11 +263,42 @@ def _parse_extraction(
                 )
             )
 
+    _add_future_work_recommend_edges(nodes, edges, base_meta)
+
     return ExtractionResult(
         source_document_id=doc.id,
         nodes=nodes,
         edges=edges,
     )
+
+
+def _add_future_work_recommend_edges(nodes: list[Node], edges: list[Edge], base_meta: EdgeMeta) -> None:
+    """Heuristic RECOMMENDS edges from future-work language in assertions to mentioned entities."""
+    seen: set[tuple[str, str]] = set()
+    targets = [n for n in nodes if n.node_type in (NodeType.CONCEPT, NodeType.ARTIFACT)]
+    for an in nodes:
+        if an.node_type != NodeType.ASSERTION:
+            continue
+        text = (an.properties.get("full_text") or an.description or "").lower()
+        if not text or not _FUTURE_WORK_PHRASES.search(text):
+            continue
+        for tn in targets:
+            nm = tn.name.strip()
+            if len(nm) < _MIN_ENTITY_NAME_FOR_RECOMMEND:
+                continue
+            if nm.lower() in text:
+                key = (an.id, tn.id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append(
+                    Edge(
+                        source_node_id=an.id,
+                        target_node_id=tn.id,
+                        edge_type=EdgeType.RECOMMENDS,
+                        meta=base_meta,
+                    )
+                )
 
 
 async def extract_batch(
@@ -193,31 +321,28 @@ async def extract_batch(
     if skipped > 0:
         logger.info("Skipping %s documents without text", skipped)
 
-    for i in range(0, len(extractable), MAX_BATCH_SIZE):
-        batch = extractable[i : i + MAX_BATCH_SIZE]
+    batches = chunk_documents_for_extraction(extractable)
+    for batch_idx, batch in enumerate(batches):
         prompt = _build_batch_prompt(schema, batch)
 
         try:
             response = await client.messages.create(
                 model=EXTRACTION_MODEL,
-                max_tokens=4096,
+                max_tokens=EXTRACTION_MAX_TOKENS,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = response.content[0].text.strip()
-            if raw_text.startswith("["):
-                parsed = json.loads(raw_text)
-            else:
-                parsed = [json.loads(raw_text)]
+            raw_text = _message_text(response)
+            parsed = _parse_extraction_json_payload(raw_text)
 
             for j, doc in enumerate(batch):
-                if j < len(parsed) and isinstance(parsed[j], dict):
+                if j < len(parsed):
                     result = _parse_extraction(parsed[j], doc, schema)
                 else:
                     result = ExtractionResult(source_document_id=doc.id)
                 results.append(result)
 
         except (json.JSONDecodeError, anthropic.APIError, KeyError, IndexError, TypeError) as e:
-            logger.error("Extraction failed for batch %s: %s", i // MAX_BATCH_SIZE, e)
+            logger.error("Extraction failed for batch %s: %s", batch_idx, e)
             for doc in batch:
                 results.append(ExtractionResult(source_document_id=doc.id))
 

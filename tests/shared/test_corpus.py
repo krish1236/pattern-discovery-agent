@@ -3,7 +3,7 @@
 import pytest
 
 from src.core.types import SourceDocument
-from src.shared.corpus import corpus_stats, deduplicate, expand_corpus
+from src.shared.corpus import cap_documents_round_robin_by_family, corpus_stats, deduplicate, expand_corpus
 
 
 class TestDedup:
@@ -44,6 +44,18 @@ class TestDedup:
         result = deduplicate(docs)
         assert len(result) == 1
         assert result[0].abstract == "A full abstract here"
+
+
+def test_cap_documents_round_robin_by_family_interleaves() -> None:
+    scholarly = [
+        SourceDocument(title=f"s{i}", source_family="scholarly", abstract="x") for i in range(30)
+    ]
+    web = [SourceDocument(title=f"w{i}", source_family="web", abstract="x") for i in range(30)]
+    out = cap_documents_round_robin_by_family(scholarly + web, 10)
+    assert len(out) == 10
+    families = [d.source_family for d in out]
+    assert families.count("scholarly") == 5
+    assert families.count("web") == 5
 
 
 class TestCorpusStats:

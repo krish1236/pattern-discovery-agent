@@ -13,6 +13,66 @@ from src.shared.embeddings import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
+# Evidence shown per bridge: ranked by embedding similarity to bridge pair (not arbitrary community order)
+_BRIDGE_EVIDENCE_TOP_K = 5
+_MAX_ENDPOINT_BRIDGE_APPEARANCES = 2
+
+
+def _evidence_assertions_in_community(
+    graph: KnowledgeGraph,
+    community_node_ids: set[str],
+) -> list[EvidenceItem]:
+    """Collect assertion nodes from a Louvain community (not just graph neighbors of the bridge)."""
+    out: list[EvidenceItem] = []
+    for node_id in community_node_ids:
+        node = graph.get_node(node_id)
+        if not node or node.node_type != NodeType.ASSERTION:
+            continue
+        text = (node.description or node.name or "")[:200]
+        out.append(
+            EvidenceItem(
+                assertion_node_id=node.id,
+                assertion_text=text,
+                source_document_id=str(node.properties.get("source_document_id", "")),
+                source_url=str(node.properties.get("source_url", "")),
+                source_tier=int(node.properties.get("source_tier", 2)),
+            )
+        )
+    return out
+
+
+def _rank_evidence_by_bridge_embedding(
+    graph: KnowledgeGraph,
+    evidence: list[EvidenceItem],
+    nu,
+    nv,
+) -> list[EvidenceItem]:
+    """Prefer assertions whose embeddings align with the bridge endpoint pair."""
+    if not evidence:
+        return evidence
+    if not nu.embedding or not nv.embedding:
+        return evidence[:_BRIDGE_EVIDENCE_TOP_K]
+    eu = np.asarray(nu.embedding, dtype=float)
+    ev = np.asarray(nv.embedding, dtype=float)
+    if eu.shape != ev.shape or eu.size == 0:
+        return evidence[:_BRIDGE_EVIDENCE_TOP_K]
+    bridge_emb = (eu + ev) / 2.0
+
+    scored: list[tuple[float, EvidenceItem]] = []
+    for item in evidence:
+        an = graph.get_node(item.assertion_node_id)
+        if not an or not an.embedding:
+            scored.append((-1.0, item))
+            continue
+        aemb = np.asarray(an.embedding, dtype=float)
+        if aemb.shape != bridge_emb.shape:
+            scored.append((-1.0, item))
+            continue
+        scored.append((cosine_similarity(bridge_emb, aemb), item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [x[1] for x in scored[:_BRIDGE_EVIDENCE_TOP_K]]
+
 
 def detect_bridges(
     graph: KnowledgeGraph,
@@ -52,9 +112,20 @@ def detect_bridges(
         node_v = graph.get_node(v)
         if not node_u or not node_v:
             continue
+        if (
+            node_u.node_type == NodeType.SOURCE_DOCUMENT
+            or node_v.node_type == NodeType.SOURCE_DOCUMENT
+        ):
+            continue
+        if node_u.node_type != NodeType.CONCEPT or node_v.node_type != NodeType.CONCEPT:
+            continue
         if not node_u.embedding or not node_v.embedding:
             continue
-        sim = cosine_similarity(np.asarray(node_u.embedding), np.asarray(node_v.embedding))
+        eu = np.asarray(node_u.embedding, dtype=float)
+        ev = np.asarray(node_v.embedding, dtype=float)
+        if eu.shape != ev.shape or eu.size == 0:
+            continue
+        sim = cosine_similarity(eu, ev)
         if sim >= semantic_threshold:
             bridge_candidates.append(
                 {
@@ -81,33 +152,39 @@ def detect_bridges(
         reverse=True,
     )
 
+    endpoint_count: dict[str, int] = {}
+    hub_filtered: list[dict] = []
+    for bc in bridge_candidates:
+        u_name, v_name = bc["node_u"].name, bc["node_v"].name
+        if (
+            endpoint_count.get(u_name, 0) >= _MAX_ENDPOINT_BRIDGE_APPEARANCES
+            or endpoint_count.get(v_name, 0) >= _MAX_ENDPOINT_BRIDGE_APPEARANCES
+        ):
+            continue
+        endpoint_count[u_name] = endpoint_count.get(u_name, 0) + 1
+        endpoint_count[v_name] = endpoint_count.get(v_name, 0) + 1
+        hub_filtered.append(bc)
+
+    bridge_candidates = hub_filtered[:top_k]
+
     patterns: list[PatternCandidate] = []
-    for bc in bridge_candidates[:top_k]:
+    for bc in bridge_candidates:
         nu = bc["node_u"]
         nv = bc["node_v"]
-        evidence: list[EvidenceItem] = []
-        for neighbor in graph.get_neighbors(nu.id):
-            if neighbor.node_type == NodeType.ASSERTION:
-                evidence.append(
-                    EvidenceItem(
-                        assertion_node_id=neighbor.id,
-                        assertion_text=neighbor.description[:200],
-                        source_document_id=str(neighbor.properties.get("source_document_id", "")),
-                        source_url=str(neighbor.properties.get("source_url", "")),
-                        source_tier=int(neighbor.properties.get("source_tier", 2)),
-                    )
-                )
-        for neighbor in graph.get_neighbors(nv.id):
-            if neighbor.node_type == NodeType.ASSERTION:
-                evidence.append(
-                    EvidenceItem(
-                        assertion_node_id=neighbor.id,
-                        assertion_text=neighbor.description[:200],
-                        source_document_id=str(neighbor.properties.get("source_document_id", "")),
-                        source_url=str(neighbor.properties.get("source_url", "")),
-                        source_tier=int(neighbor.properties.get("source_tier", 2)),
-                    )
-                )
+        comm_u = communities[bc["community_u"]]
+        comm_v = communities[bc["community_v"]]
+        evidence = _evidence_assertions_in_community(graph, comm_u) + _evidence_assertions_in_community(
+            graph, comm_v
+        )
+        seen_ids: set[str] = set()
+        deduped: list[EvidenceItem] = []
+        for item in evidence:
+            if item.assertion_node_id in seen_ids:
+                continue
+            seen_ids.add(item.assertion_node_id)
+            deduped.append(item)
+        evidence_raw_count = len(deduped)
+        evidence = _rank_evidence_by_bridge_embedding(graph, deduped, nu, nv)
 
         patterns.append(
             PatternCandidate(
@@ -119,11 +196,14 @@ def detect_bridges(
                     f"cosine similarity {bc['similarity']:.2f} and betweenness "
                     f"{bc['centrality']:.3f}."
                 ),
-                evidence=evidence[:10],
+                evidence=evidence,
                 blind_spots=[
                     BlindSpot(
-                        description=f"{len(evidence)} evidence items near bridge endpoints",
-                        severity="moderate" if len(evidence) >= 3 else "major",
+                        description=(
+                            f"{evidence_raw_count} community assertions; showing top "
+                            f"{len(evidence)} by embedding similarity to the bridge pair"
+                        ),
+                        severity="moderate" if evidence_raw_count >= 3 else "major",
                     )
                 ],
                 confidence_score=min(bc["similarity"], 0.95),

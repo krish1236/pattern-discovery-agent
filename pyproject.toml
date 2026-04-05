@@ -37,4 +37,5 @@ markers = [
     "slow: downloads models or heavy compute",
     "live: real HTTP/API calls",
     "integration: full pipeline",
+    "quality: needs eval_output from scripts/run_evaluation.py",
 ]

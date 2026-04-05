@@ -29,8 +29,11 @@ MANIFEST
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.dmypy.json
 .coverage
 .coverage.*
+coverage.xml
+*.cover
 htmlcov/
 .tox/
 .nox/
@@ -40,13 +43,13 @@ hypothesis/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Downloaded models and heavy ML caches (local dev)
+# Downloaded models and heavy ML caches (local dev; repo-root only — not $HOME)
 .cache/
 *.pt
 *.pth
 *.onnx
 *.bin
-~/.cache/huggingface/
+*.safetensors
 
 # OS files
 .DS_Store
@@ -66,6 +69,9 @@ Desktop.ini
 
 .vscode/
 
+# Cursor (local index / context rules; not shared)
+.cursorignore
+
 # Logs and local scratch
 *.log
 logs/
@@ -80,6 +86,18 @@ site/
 
 # RunForge / local agent runtime storage (if created under project)
 .agent_runtime/
+
+# Local evaluation runs (scripts/run_evaluation.py; --output-dir defaults here)
+eval_output/
+outputs/
+run_output/
+
+# Serialized / scratch data (local experiments)
+*.pkl
+*.pickle
+
+# ML experiment tracking (if used)
+wandb/
 
 # macOS resource forks
 ._*

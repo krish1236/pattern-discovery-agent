@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 from src.core.types import PatternCandidate, SourceDocument
+
+logger = logging.getLogger(__name__)
 from src.domain_pack import DomainPack, DomainSchema, SourceConnector
 from src.packs.research.interpret_format import format_research_interpretation
 from src.packs.research.router import SourcePlan, build_source_plan, is_research_topic
@@ -56,7 +60,16 @@ class ResearchPack(DomainPack):
     def interpret(self, pattern: PatternCandidate) -> str:
         schema = self.get_schema()
         tpl = schema.interpretation_templates.get(pattern.pattern_type.value, "")
-        return format_research_interpretation(pattern, tpl)
+        filled = format_research_interpretation(pattern, tpl)
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if api_key:
+            try:
+                from src.packs.research.interpret_llm import synthesize_pattern_interpretation
+
+                return synthesize_pattern_interpretation(pattern, filled, api_key=api_key)
+            except Exception as e:
+                logger.warning("LLM interpretation failed; using filled template: %s", e)
+        return filled
 
 
 __all__ = [

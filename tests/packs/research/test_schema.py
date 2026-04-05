@@ -1,5 +1,8 @@
 """Research domain pack tests."""
 
+import os
+from unittest.mock import patch
+
 from src.core.types import EdgeType, NodeType, PatternCandidate, PatternType, SourceDocument
 from src.packs.research import ResearchPack
 from src.packs.research.router import build_source_plan, is_research_topic
@@ -95,8 +98,9 @@ class TestResearchPack:
         assert pack.classify_tier(doc) == 3
 
     def test_interpret_returns_template(self) -> None:
-        pack = ResearchPack()
-        pattern = PatternCandidate(pattern_type=PatternType.BRIDGE)
-        result = pack.interpret(pattern)
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
+            pack = ResearchPack()
+            pattern = PatternCandidate(pattern_type=PatternType.BRIDGE)
+            result = pack.interpret(pattern)
         assert len(result) > 0
         assert "communities" in result.lower() or "community" in result.lower()

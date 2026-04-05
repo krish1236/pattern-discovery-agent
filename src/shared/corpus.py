@@ -67,6 +67,40 @@ def deduplicate(documents: list[SourceDocument], title_threshold: float = 0.9) -
     return result
 
 
+def cap_documents_round_robin_by_family(documents: list[SourceDocument], max_n: int) -> list[SourceDocument]:
+    """Truncate to max_n while round-robining across source_family (avoids scholarly-only caps)."""
+    if len(documents) <= max_n:
+        return documents
+
+    from collections import defaultdict, deque
+
+    buckets: dict[str, deque[SourceDocument]] = defaultdict(deque)
+    family_order: list[str] = []
+    seen_f: set[str] = set()
+    for d in documents:
+        fam = d.source_family or "unknown"
+        if fam not in seen_f:
+            family_order.append(fam)
+            seen_f.add(fam)
+        buckets[fam].append(d)
+
+    out: list[SourceDocument] = []
+    fi = 0
+    while len(out) < max_n:
+        progressed = False
+        for _ in range(len(family_order)):
+            fam = family_order[fi % len(family_order)]
+            fi += 1
+            if buckets[fam]:
+                out.append(buckets[fam].popleft())
+                progressed = True
+                if len(out) >= max_n:
+                    break
+        if not progressed:
+            break
+    return out
+
+
 async def expand_corpus(
     documents: list[SourceDocument],
     connectors: list[SourceConnector],

@@ -4,8 +4,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.patterns import contradictions as contradictions_mod
 from src.core.patterns.contradictions import _classify_nli, refine_contradiction_candidates
 from src.core.types import EvidenceItem, PatternCandidate, PatternType
+
+
+def test_classify_nli_softmax_confidence_is_unit_probability() -> None:
+    mock_model = MagicMock()
+    mock_model.predict = MagicMock(return_value=[[2.0, 5.0, 1.0]])
+    mock_model.model.config.id2label = {0: "contradiction", 1: "entailment", 2: "neutral"}
+    with patch.object(contradictions_mod, "_get_nli_model", return_value=mock_model):
+        results = _classify_nli([("a", "b")])
+    assert results[0]["label"] == "entailment"
+    assert 0.0 <= results[0]["confidence"] <= 1.0
+    assert abs(sum(results[0]["scores"].values()) - 1.0) < 1e-5
 
 
 @pytest.mark.slow
