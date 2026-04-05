@@ -6,6 +6,7 @@ from typing import Any
 
 from src.core.types import PatternCandidate, SourceDocument
 from src.domain_pack import DomainPack, DomainSchema, SourceConnector
+from src.packs.research.interpret_format import format_research_interpretation
 from src.packs.research.router import SourcePlan, build_source_plan, is_research_topic
 from src.packs.research.schema import get_research_schema
 
@@ -53,7 +54,8 @@ class ResearchPack(DomainPack):
 
     def interpret(self, pattern: PatternCandidate) -> str:
         schema = self.get_schema()
-        return schema.interpretation_templates.get(pattern.pattern_type.value, "")
+        tpl = schema.interpretation_templates.get(pattern.pattern_type.value, "")
+        return format_research_interpretation(pattern, tpl)
 
 
 __all__ = [
