@@ -140,9 +140,12 @@ Match `agent.yaml` `entrypoint` to your module (`agent:run`). Inputs from the tr
   "depth": "standard",
   "focus": "all",
   "time_range": "2023-2026",
-  "max_documents": 100
+  "max_documents": 100,
+  "resume": false
 }
 ```
+
+Set `"resume": true` when `ctx.storage` already has `documents.json`, `extraction_results.json`, and `graph.json` from a previous run (same project storage). In that case ingest, expansion, extraction, and graph rebuild are skipped; embeddings are filled in if missing, then mining, verification, and reporting run again.
 
 ## License
 
