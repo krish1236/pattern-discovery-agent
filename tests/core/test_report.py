@@ -29,11 +29,25 @@ def test_generate_evidence_table() -> None:
             EvidenceItem("a1", "text", "d1", "https://x.com", 1),
         ],
         confidence_score=0.8,
+        interpretation="Gap guidance text",
     )
     p.confidence_level = ConfidenceLevel.MEDIUM
-    raw = generate_evidence_table([p], [])
+    ex = PromotedPattern(
+        pattern_type=PatternType.BRIDGE,
+        title="Weak",
+        evidence=[
+            EvidenceItem("a2", "e2", "d2", "https://y.com", 2),
+        ],
+        withheld_reason="Not enough evidence",
+    )
+    raw = generate_evidence_table([p], [ex])
     assert "pattern_id" in raw
     assert "https://x.com" in raw
+    assert "promotion_status" in raw
+    assert '"promoted"' in raw
+    assert '"exploratory"' in raw
+    assert "Gap guidance text" in raw
+    assert "Not enough evidence" in raw
 
 
 def test_coverage_markdown() -> None:

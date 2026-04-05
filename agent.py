@@ -353,6 +353,7 @@ async def run(ctx, input):  # noqa: ANN001
                     "title": p.title,
                     "confidence": p.confidence_level.value if p.confidence_level else "",
                     "evidence_count": p.evidence_count,
+                    "interpretation": p.interpretation or "",
                 }
                 for p in promoted
             ],

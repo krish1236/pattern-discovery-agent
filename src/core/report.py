@@ -93,20 +93,31 @@ def generate_evidence_table(
     exploratory: list[PromotedPattern],
 ) -> str:
     entries: list[dict[str, Any]] = []
-    for p in promoted + exploratory:
-        for e in p.evidence + p.counter_evidence:
-            entries.append(
-                {
-                    "pattern_id": p.id,
-                    "pattern_type": p.pattern_type.value,
-                    "pattern_title": p.title,
-                    "assertion_text": e.assertion_text,
-                    "source_url": e.source_url,
-                    "source_tier": e.source_tier,
-                    "role": e.role,
-                    "confidence": p.confidence_level.value if p.confidence_level else "",
-                }
-            )
+    for status, patterns in (
+        ("promoted", promoted),
+        ("exploratory", exploratory),
+    ):
+        for p in patterns:
+            base = {
+                "pattern_id": p.id,
+                "pattern_type": p.pattern_type.value,
+                "pattern_title": p.title,
+                "promotion_status": status,
+                "confidence": p.confidence_level.value if p.confidence_level else "",
+                "pattern_interpretation": p.interpretation or "",
+                "withheld_reason": p.withheld_reason or "",
+            }
+            for e in p.evidence + p.counter_evidence:
+                row = dict(base)
+                row.update(
+                    {
+                        "assertion_text": e.assertion_text,
+                        "source_url": e.source_url,
+                        "source_tier": e.source_tier,
+                        "role": e.role,
+                    }
+                )
+                entries.append(row)
     return json.dumps(entries, indent=2)
 
 
