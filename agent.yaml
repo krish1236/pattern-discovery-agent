@@ -1,3 +1,6 @@
+# Runforge: define `inputs` so the dashboard shows a guided form (see ApplyPilot agent.yaml).
+# Values are passed as ctx.inputs and merged in agent.py: payload = {**input, **ctx.inputs}.
+
 name: pattern-discovery
 entrypoint: agent:run
 python_version: "3.11"
@@ -5,3 +8,92 @@ browser: false
 run_timeout_minutes: 60
 max_concurrency: 2
 tools: []
+
+planned_steps:
+  - name: classify_topic
+    description: Resolve domain pack and topic
+  - name: route_sources
+    description: Build scholarly / web source plan
+  - name: ingest_corpus
+    description: Fetch and deduplicate documents
+  - name: expand_corpus
+    description: Expand corpus with related work
+  - name: extract_knowledge
+    description: LLM extraction to graph nodes and edges
+  - name: build_graph
+    description: Merge extractions into knowledge graph
+  - name: mine_patterns
+    description: Bridges, contradictions, drift, gaps
+  - name: verify_patterns
+    description: Promotion gate and confidence
+  - name: generate_report
+    description: Artifacts and pattern report
+
+inputs:
+  - id: topic
+    type: text
+    label: Research topic
+    description: Main question or area to analyze (e.g. Bitcoin L2 scaling).
+    placeholder: e.g. Bitcoin scaling debate layer 2 Lightning Network
+    required: true
+
+  - id: depth
+    type: select
+    label: Search depth
+    description: Affects query budget and corpus size caps.
+    default: standard
+    options:
+      - value: quick
+        description: Faster, smaller corpus
+      - value: standard
+        description: Balanced
+      - value: deep
+        description: Larger corpus, more API calls
+
+  - id: focus
+    type: select
+    label: Pattern focus
+    description: Which pattern detectors to run (all runs every type).
+    default: all
+    options:
+      - value: all
+        description: All pattern types
+      - value: bridges
+        description: Cross-community bridges only
+      - value: contradictions
+        description: Contradictions only
+      - value: drift
+        description: Temporal drift only
+      - value: gaps
+        description: Research gaps only
+
+  - id: time_range
+    type: text
+    label: Publication time range (optional)
+    description: Connector-specific filter, e.g. a year span.
+    placeholder: e.g. 2020-2026
+    required: false
+
+  - id: max_documents
+    type: integer
+    label: Max documents
+    description: Hard cap after deduplication and tiering.
+    default: 100
+
+  - id: domain
+    type: text
+    label: Domain pack override (optional)
+    description: Leave blank to infer from topic.
+    required: false
+
+  - id: resume
+    type: boolean
+    label: Resume from checkpoint
+    description: Continue from stored blobs when available.
+    default: false
+
+  - id: remine_patterns
+    type: boolean
+    label: Re-mine patterns only
+    description: When resuming, skip ingest and re-run mining on existing graph.
+    default: false
