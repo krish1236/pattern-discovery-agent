@@ -38,12 +38,30 @@ class TestVerifier:
         pattern = PatternCandidate(
             pattern_type=PatternType.CONTRADICTION,
             title="Medium",
-            evidence=_make_evidence(3, [1]),
+            evidence=[
+                EvidenceItem(
+                    assertion_node_id="a0",
+                    assertion_text="claim A",
+                    source_document_id="d0",
+                    source_url="https://a.example",
+                    source_tier=1,
+                )
+            ],
+            counter_evidence=[
+                EvidenceItem(
+                    assertion_node_id="a1",
+                    assertion_text="claim B",
+                    source_document_id="d1",
+                    source_url="https://b.example",
+                    source_tier=2,
+                )
+            ],
             confidence_score=0.6,
         )
         result = verify_pattern(pattern)
         assert result is not None
-        assert result.confidence_level in (ConfidenceLevel.MEDIUM, ConfidenceLevel.LOW)
+        assert result.withheld_reason is None
+        assert result.confidence_level == ConfidenceLevel.HIGH
 
     def test_withholds_insufficient_evidence(self) -> None:
         pattern = PatternCandidate(
@@ -58,11 +76,11 @@ class TestVerifier:
 
     def test_unresolved_with_counter_evidence(self) -> None:
         pattern = PatternCandidate(
-            pattern_type=PatternType.CONTRADICTION,
+            pattern_type=PatternType.BRIDGE,
             title="Unresolved",
             evidence=_make_evidence(5, [1, 2, 1, 2, 1]),
-            counter_evidence=_make_evidence(3, [1, 2, 1]),
-            confidence_score=0.4,
+            counter_evidence=_make_evidence(1, [2]),
+            confidence_score=0.5,
         )
         result = verify_pattern(pattern)
         assert result is not None
@@ -92,9 +110,9 @@ class TestVerifier:
             confidence_score=0.8,
         )
         weak = PatternCandidate(
-            pattern_type=PatternType.GAP,
+            pattern_type=PatternType.BRIDGE,
             title="Weak",
-            evidence=_make_evidence(1),
+            evidence=_make_evidence(2),
             confidence_score=0.3,
         )
         promoted, exploratory = verify_all([strong, weak])

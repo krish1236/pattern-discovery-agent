@@ -207,6 +207,7 @@ def detect_bridges(
     graph: KnowledgeGraph,
     min_community_size: int = 3,
     semantic_threshold: float = 0.4,
+    max_semantic_similarity: float = 0.80,
     top_k: int = 10,
 ) -> list[PatternCandidate]:
     if graph.node_count < 6:
@@ -255,7 +256,11 @@ def detect_bridges(
         if eu.shape != ev.shape or eu.size == 0:
             continue
         sim = cosine_similarity(eu, ev)
-        if sim >= semantic_threshold:
+        u_lower = (node_u.name or "").lower()
+        v_lower = (node_v.name or "").lower()
+        if u_lower and v_lower and (u_lower in v_lower or v_lower in u_lower):
+            continue
+        if semantic_threshold <= sim <= max_semantic_similarity:
             bridge_candidates.append(
                 {
                     "node_u": node_u,

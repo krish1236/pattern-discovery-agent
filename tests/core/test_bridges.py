@@ -73,8 +73,9 @@ def bridge_graph() -> KnowledgeGraph:
     n_a1 = g.get_node("ca1")
     n_b1 = g.get_node("cb1")
     assert n_a1 is not None and n_b1 is not None
-    n_a1.embedding = [0.5, 0.5, 0.1]
-    n_b1.embedding = [0.5, 0.5, 0.2]
+    # Cross-community cosine must stay within bridge band (above min, below max_obvious).
+    n_a1.embedding = [1.0, 0.0, 0.0]
+    n_b1.embedding = [0.55, 0.55, 0.3]
     g.add_edge(
         Edge(
             source_node_id="ca1",
@@ -101,15 +102,18 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
         provenance="test",
         domain="research",
     )
-    emb_a = [0.55, 0.45, 0.05]
-    emb_b = [0.54, 0.46, 0.06]
+    # Intra-community similarity high; cross-edge c1–c3 in (min_threshold, max_obvious).
+    emb_c1 = [0.7, 0.2, 0.1]
+    emb_c2 = [0.65, 0.25, 0.1]
+    emb_c3 = [0.2, 0.7, 0.15]
+    emb_c4 = [0.25, 0.65, 0.12]
     g.add_node(
         Node(
             id="c1",
             node_type=NodeType.CONCEPT,
             name="QuasarRuntimeKernel",
             domain="research",
-            embedding=list(emb_a),
+            embedding=list(emb_c1),
         )
     )
     g.add_node(
@@ -118,7 +122,7 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
             node_type=NodeType.CONCEPT,
             name="NebulaStorageFabric",
             domain="research",
-            embedding=[0.56, 0.44, 0.04],
+            embedding=list(emb_c2),
         )
     )
     g.add_edge(Edge(source_node_id="c1", target_node_id="c2", edge_type=EdgeType.SUPPORTS, meta=meta))
@@ -144,7 +148,7 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
             node_type=NodeType.CONCEPT,
             name="HelixWorkflowMesh",
             domain="research",
-            embedding=list(emb_b),
+            embedding=list(emb_c3),
         )
     )
     g.add_node(
@@ -153,7 +157,7 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
             node_type=NodeType.CONCEPT,
             name="VertexPolicyGraph",
             domain="research",
-            embedding=[0.53, 0.47, 0.07],
+            embedding=list(emb_c4),
         )
     )
     g.add_edge(Edge(source_node_id="c3", target_node_id="c4", edge_type=EdgeType.SUPPORTS, meta=meta))

@@ -71,6 +71,89 @@ def _classify_nli(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
     return results
 
 
+def _find_source_doc_for_node(graph: KnowledgeGraph, node: Node) -> tuple[str, str, int]:
+    """Resolve source document id, URL, and tier for an assertion (properties then neighbors)."""
+    src_id = str(node.properties.get("source_document_id", ""))
+    src_url = str(node.properties.get("source_url", ""))
+    src_tier = int(node.properties.get("source_tier", 2))
+    if src_url:
+        return src_id, src_url, src_tier
+    for neighbor in graph.get_neighbors(node.id):
+        if neighbor.node_type == NodeType.SOURCE_DOCUMENT:
+            return (
+                neighbor.id,
+                str(neighbor.properties.get("source_url", "")),
+                int(neighbor.properties.get("source_tier", 2)),
+            )
+    return "", "", 2
+
+
+def _gather_corroborating_evidence(
+    graph: KnowledgeGraph,
+    node_a: Node,
+    node_b: Node,
+    max_per_side: int = 3,
+) -> tuple[list[EvidenceItem], list[EvidenceItem]]:
+    """Assertions embedding-near one side but not the other extend the contradiction chain."""
+    all_assertions = graph.get_nodes_by_type(NodeType.ASSERTION)
+
+    if not node_a.embedding or not node_b.embedding:
+        return [], []
+
+    emb_a = np.asarray(node_a.embedding, dtype=float)
+    emb_b = np.asarray(node_b.embedding, dtype=float)
+
+    exclude_ids = {node_a.id, node_b.id}
+    candidates = [
+        a
+        for a in all_assertions
+        if a.id not in exclude_ids
+        and a.embedding
+        and len(a.embedding) == len(node_a.embedding)
+    ]
+
+    supports_a: list[tuple[float, Node]] = []
+    supports_b: list[tuple[float, Node]] = []
+
+    for a in candidates:
+        emb = np.asarray(a.embedding, dtype=float)
+        sim_to_a = cosine_similarity(emb, emb_a)
+        sim_to_b = cosine_similarity(emb, emb_b)
+
+        if sim_to_a > sim_to_b + 0.05 and sim_to_a > 0.6:
+            supports_a.append((sim_to_a, a))
+        elif sim_to_b > sim_to_a + 0.05 and sim_to_b > 0.6:
+            supports_b.append((sim_to_b, a))
+
+    supports_a.sort(key=lambda x: x[0], reverse=True)
+    supports_b.sort(key=lambda x: x[0], reverse=True)
+
+    def _to_evidence(items: list[tuple[float, Node]], role: str) -> list[EvidenceItem]:
+        result: list[EvidenceItem] = []
+        seen_texts: set[str] = set()
+        for _, n in items:
+            text = (n.description or n.name or "")[:200]
+            if not text or text in seen_texts:
+                continue
+            seen_texts.add(text)
+            src = _find_source_doc_for_node(graph, n)
+            result.append(
+                EvidenceItem(
+                    assertion_node_id=n.id,
+                    assertion_text=text,
+                    source_document_id=src[0],
+                    source_url=src[1],
+                    source_tier=src[2],
+                    role=role,
+                )
+            )
+            if len(result) >= max_per_side:
+                break
+        return result
+
+    return _to_evidence(supports_a, "supports"), _to_evidence(supports_b, "counters")
+
+
 def detect_contradictions(
     graph: KnowledgeGraph,
     similarity_threshold: float = 0.4,
@@ -102,16 +185,6 @@ def detect_contradictions(
     text_pairs = [(a.description or a.name, b.description or b.name) for a, b, _ in candidate_pairs]
     nli_results = _classify_nli(text_pairs)
 
-    def _find_source_doc(node: Node) -> tuple[str, str, int]:
-        for neighbor in graph.get_neighbors(node.id):
-            if neighbor.node_type == NodeType.SOURCE_DOCUMENT:
-                return (
-                    neighbor.id,
-                    str(neighbor.properties.get("source_url", "")),
-                    int(neighbor.properties.get("source_tier", 2)),
-                )
-        return ("", "", 2)
-
     patterns: list[PatternCandidate] = []
     for (node_a, node_b, sim), nli_result in zip(candidate_pairs, nli_results):
         if nli_result["label"] != "contradiction":
@@ -119,54 +192,58 @@ def detect_contradictions(
         if nli_result["confidence"] < contradiction_confidence:
             continue
 
-        src_a = _find_source_doc(node_a)
-        src_b = _find_source_doc(node_b)
+        src_a = _find_source_doc_for_node(graph, node_a)
+        src_b = _find_source_doc_for_node(graph, node_b)
 
-        patterns.append(
-            PatternCandidate(
-                pattern_type=PatternType.CONTRADICTION,
-                title=f"Contradiction: {node_a.name[:50]} vs {node_b.name[:50]}",
-                measured_pattern=(
-                    f"NLI classified assertions as contradictory "
-                    f"(confidence={nli_result['confidence']:.2f}, cosine={sim:.2f})."
-                ),
-                evidence=[
-                    EvidenceItem(
-                        assertion_node_id=node_a.id,
-                        assertion_text=(node_a.description or node_a.name)[:300],
-                        source_document_id=src_a[0],
-                        source_url=src_a[1],
-                        source_tier=src_a[2],
-                        role="supports",
-                    )
-                ],
-                counter_evidence=[
-                    EvidenceItem(
-                        assertion_node_id=node_b.id,
-                        assertion_text=(node_b.description or node_b.name)[:300],
-                        source_document_id=src_b[0],
-                        source_url=src_b[1],
-                        source_tier=src_b[2],
-                        role="counters",
-                    )
-                ],
-                blind_spots=[
-                    BlindSpot(
-                        description="NLI may miss domain nuance; verify with domain experts.",
-                        severity="moderate",
-                    )
-                ],
-                confidence_score=nli_result["confidence"] * 0.8,
-                domain=node_a.domain,
-                details={
-                    "assertion_a": node_a.description,
-                    "assertion_b": node_b.description,
-                    "nli_confidence": nli_result["confidence"],
-                    "nli_scores": nli_result["scores"],
-                    "cosine_similarity": sim,
-                },
-            )
+        pattern = PatternCandidate(
+            pattern_type=PatternType.CONTRADICTION,
+            title=f"Contradiction: {node_a.name[:50]} vs {node_b.name[:50]}",
+            measured_pattern=(
+                f"NLI classified assertions as contradictory "
+                f"(confidence={nli_result['confidence']:.2f}, cosine={sim:.2f})."
+            ),
+            evidence=[
+                EvidenceItem(
+                    assertion_node_id=node_a.id,
+                    assertion_text=(node_a.description or node_a.name)[:300],
+                    source_document_id=src_a[0],
+                    source_url=src_a[1],
+                    source_tier=src_a[2],
+                    role="supports",
+                )
+            ],
+            counter_evidence=[
+                EvidenceItem(
+                    assertion_node_id=node_b.id,
+                    assertion_text=(node_b.description or node_b.name)[:300],
+                    source_document_id=src_b[0],
+                    source_url=src_b[1],
+                    source_tier=src_b[2],
+                    role="counters",
+                )
+            ],
+            blind_spots=[
+                BlindSpot(
+                    description="NLI may miss domain nuance; verify with domain experts.",
+                    severity="moderate",
+                )
+            ],
+            confidence_score=nli_result["confidence"] * 0.8,
+            domain=node_a.domain,
+            details={
+                "assertion_a": node_a.description,
+                "assertion_b": node_b.description,
+                "nli_confidence": nli_result["confidence"],
+                "nli_scores": nli_result["scores"],
+                "cosine_similarity": sim,
+            },
         )
+        extra_support, extra_counter = _gather_corroborating_evidence(
+            graph, node_a, node_b, max_per_side=3
+        )
+        pattern.evidence.extend(extra_support)
+        pattern.counter_evidence.extend(extra_counter)
+        patterns.append(pattern)
 
     logger.info("Produced %s contradiction pattern candidates", len(patterns))
     return patterns

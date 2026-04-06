@@ -97,9 +97,8 @@ def detect_drift(
         for window in (t["from_window"], t["to_window"]):
             cluster_content = window_cluster_nodes.get(window, {})
             for _label, cluster_nodes in cluster_content.items():
-                for node in cluster_nodes[:2]:
-                    if node.node_type != NodeType.ASSERTION:
-                        continue
+                assertion_nodes = [n for n in cluster_nodes if n.node_type == NodeType.ASSERTION]
+                for node in assertion_nodes[:3]:
                     text = (node.description or node.name or "")[:200]
                     if not text:
                         continue

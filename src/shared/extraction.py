@@ -22,10 +22,42 @@ MAX_BATCH_SIZE = 3
 MAX_BATCH_TEXT_CHARS = 12_000
 EXTRACTION_MAX_TOKENS = int(os.environ.get("ANTHROPIC_EXTRACTION_MAX_TOKENS", "8192"))
 
+_FUTURE_WORK_PATTERN_STRS = [
+    r"future work",
+    r"future research",
+    r"should be explored",
+    r"remains to be",
+    r"open problem",
+    r"further research",
+    r"has not been",
+    r"yet to be",
+    r"underexplored",
+    r"under-explored",
+    r"needs further",
+    r"warrants further",
+    r"calls for",
+    r"promising direction",
+    r"promising avenue",
+    r"not yet been",
+    r"largely unexplored",
+    r"remains unclear",
+    r"limited attention",
+    r"deserves more",
+    r"gap in",
+    r"challenge remains",
+    r"challenges remain",
+    r"not well understood",
+    r"poorly understood",
+    r"more research is needed",
+    r"open challenge",
+    r"open question",
+    r"unresolved",
+    r"worth investigating",
+    r"worth exploring",
+    r"important direction",
+]
 _FUTURE_WORK_PHRASES = re.compile(
-    r"(future work|remains to be|should be explored|open problem|further research|"
-    r"has not been|promising direction|worth investigating|an open question|"
-    r"worth exploring|important direction)",
+    "(" + "|".join(_FUTURE_WORK_PATTERN_STRS) + ")",
     re.I,
 )
 _MIN_ENTITY_NAME_FOR_RECOMMEND = 4

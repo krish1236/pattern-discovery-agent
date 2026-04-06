@@ -43,6 +43,9 @@ def detect_gaps(
         node = graph.get_node(node_id)
         if not node or node.node_type not in (NodeType.CONCEPT, NodeType.ARTIFACT):
             continue
+        name = (node.name or "").strip()
+        if len(name) < 4 or len(name.split()) < 2:
+            continue
         unique_sources = {_recommender_source_key(graph, rid) for rid in recommenders}
         n_sources = len(unique_sources)
         if n_sources >= min_recommendations:
