@@ -111,8 +111,26 @@ async def _close_connectors(connectors: list) -> None:
                 logger.warning("Connector close failed: %s", e)
 
 
+def _record_pipeline_error(ctx, step: str, message: str) -> None:
+    """Append a non-fatal error for run_summary / logs; does not stop the run."""
+    msg = str(message)[:4000]
+    ctx.state.setdefault("pipeline_errors", []).append({"step": step, "message": msg})
+    ctx.log(f"Non-fatal [{step}]: {msg}", level="warning")
+
+
+def _safe_filter_by_relevance(ctx, step: str, documents: list, topic: str) -> list:
+    if not documents or not (topic or "").strip():
+        return documents
+    try:
+        return filter_by_relevance(documents, topic)
+    except Exception as e:
+        _record_pipeline_error(ctx, step, f"filter_by_relevance: {e}")
+        return documents
+
+
 @runtime.agent(name="pattern-discovery", planned_steps=STEPS)
 async def run(ctx, input):  # noqa: ANN001
+    ctx.state["pipeline_errors"] = []
     payload = {**(input or {}), **ctx.inputs}
     topic = payload.get("topic", "")
     depth = payload.get("depth", "standard")
@@ -178,7 +196,11 @@ async def run(ctx, input):  # noqa: ANN001
             ctx.state["corpus_stats"] = stats
             ctx.log(f"Resume: skipped ingest ({stats['total_documents']} documents from checkpoint)")
         else:
-            connectors = pack.get_connectors(config)
+            connectors: list = []
+            try:
+                connectors = pack.get_connectors(config)
+            except Exception as e:
+                _record_pipeline_error(ctx, "ingest_corpus", f"get_connectors: {e}")
             try:
                 for connector in connectors:
                     for query in plan.queries[:8]:
@@ -191,14 +213,27 @@ async def run(ctx, input):  # noqa: ANN001
                             all_docs.extend(docs)
                             ctx.log(f"  {connector.__class__.__name__}: {len(docs)} docs for {query!r}")
                         except Exception as e:
-                            ctx.log(f"  {connector.__class__.__name__} failed: {e}", level="warning")
+                            _record_pipeline_error(
+                                ctx,
+                                "ingest_corpus",
+                                f"{connector.__class__.__name__}.search({query!r}): {e}",
+                            )
             finally:
                 await _close_connectors(connectors)
 
-            all_docs = deduplicate(all_docs)
-            all_docs = filter_by_relevance(all_docs, topic)
-            all_docs = cap_documents_round_robin_by_family(all_docs, max_documents)
-            all_docs = assign_tiers(all_docs, pack)
+            try:
+                all_docs = deduplicate(all_docs)
+            except Exception as e:
+                _record_pipeline_error(ctx, "ingest_corpus", f"deduplicate: {e}")
+            all_docs = _safe_filter_by_relevance(ctx, "ingest_corpus", all_docs, topic)
+            try:
+                all_docs = cap_documents_round_robin_by_family(all_docs, max_documents)
+            except Exception as e:
+                _record_pipeline_error(ctx, "ingest_corpus", f"cap_documents: {e}")
+            try:
+                all_docs = assign_tiers(all_docs, pack)
+            except Exception as e:
+                _record_pipeline_error(ctx, "ingest_corpus", f"assign_tiers: {e}")
             stats = corpus_stats(all_docs)
             ctx.state["corpus_stats"] = stats
             ctx.log(f"Corpus: {stats['total_documents']} documents after dedup")
@@ -210,15 +245,28 @@ async def run(ctx, input):  # noqa: ANN001
         elif len(all_docs) == 0:
             ctx.log("Skipped corpus expansion (empty corpus)")
         else:
-            connectors = pack.get_connectors(config)
+            connectors = []
+            try:
+                connectors = pack.get_connectors(config)
+            except Exception as e:
+                _record_pipeline_error(ctx, "expand_corpus", f"get_connectors: {e}")
+            new_docs: list = []
             try:
                 new_docs = await expand_corpus(all_docs, connectors, budget=plan.expansion_budget)
+            except Exception as e:
+                _record_pipeline_error(ctx, "expand_corpus", f"expand_corpus: {e}")
             finally:
                 await _close_connectors(connectors)
-            new_docs = assign_tiers(new_docs, pack)
+            try:
+                new_docs = assign_tiers(new_docs, pack)
+            except Exception as e:
+                _record_pipeline_error(ctx, "expand_corpus", f"assign_tiers (expansion): {e}")
             all_docs.extend(new_docs)
-            all_docs = deduplicate(all_docs)
-            all_docs = filter_by_relevance(all_docs, topic)
+            try:
+                all_docs = deduplicate(all_docs)
+            except Exception as e:
+                _record_pipeline_error(ctx, "expand_corpus", f"deduplicate: {e}")
+            all_docs = _safe_filter_by_relevance(ctx, "expand_corpus", all_docs, topic)
             ctx.log(f"After expansion: {len(all_docs)} documents")
             _storage_put(ctx, "documents.json", json.dumps([d.to_dict() for d in all_docs]))
 
@@ -289,10 +337,17 @@ async def run(ctx, input):  # noqa: ANN001
         else:
             graph = KnowledgeGraph()
             for result in results:
-                graph.add_extraction_result(result)
+                try:
+                    graph.add_extraction_result(result)
+                except Exception as e:
+                    _record_pipeline_error(ctx, "build_graph", f"add_extraction_result: {e}")
 
             _embed_graph_text_nodes(ctx, graph)
-            n_emb_merges = graph.merge_nodes_by_embedding(min_cosine=0.85)
+            n_emb_merges = 0
+            try:
+                n_emb_merges = graph.merge_nodes_by_embedding(min_cosine=0.85)
+            except Exception as e:
+                _record_pipeline_error(ctx, "build_graph", f"merge_nodes_by_embedding: {e}")
             if n_emb_merges:
                 ctx.log(f"Graph: merged {n_emb_merges} entity pairs by embedding similarity")
 
@@ -321,23 +376,34 @@ async def run(ctx, input):  # noqa: ANN001
             _embed_graph_text_nodes(ctx, graph)
             graph.merge_nodes_by_embedding(min_cosine=0.85)
             if focus in ("bridges", "all"):
-                candidates.extend(detect_bridges(graph))
+                try:
+                    candidates.extend(detect_bridges(graph))
+                except Exception as e:
+                    _record_pipeline_error(ctx, "mine_patterns", f"detect_bridges: {e}")
             if focus in ("contradictions", "all"):
                 try:
                     cd = detect_contradictions(graph)
                     tpl = pack.get_schema().interpretation_templates.get("contradiction", "")
                     if api_key and tpl:
-                        cd = await refine_contradiction_candidates(cd, tpl, api_key)
+                        try:
+                            cd = await refine_contradiction_candidates(cd, tpl, api_key)
+                        except Exception as e:
+                            _record_pipeline_error(
+                                ctx, "mine_patterns", f"refine_contradiction_candidates: {e}"
+                            )
                     candidates.extend(cd)
                 except Exception as e:
-                    ctx.log(f"Contradiction mining failed: {e}", level="warning")
+                    _record_pipeline_error(ctx, "mine_patterns", f"detect_contradictions: {e}")
             if focus in ("drift", "all"):
                 try:
                     candidates.extend(detect_drift(graph))
                 except Exception as e:
-                    ctx.log(f"Drift mining failed: {e}", level="warning")
+                    _record_pipeline_error(ctx, "mine_patterns", f"detect_drift: {e}")
             if focus in ("gaps", "all"):
-                candidates.extend(detect_gaps(graph))
+                try:
+                    candidates.extend(detect_gaps(graph))
+                except Exception as e:
+                    _record_pipeline_error(ctx, "mine_patterns", f"detect_gaps: {e}")
 
         ctx.state["pattern_stats"] = {"candidates": len(candidates)}
         ctx.log(f"Pattern mining: {len(candidates)} candidates")
@@ -348,7 +414,11 @@ async def run(ctx, input):  # noqa: ANN001
         )
 
     with ctx.safe_step("verify_patterns"):
-        promoted, exploratory = verify_all(candidates, interpret=pack.interpret)
+        try:
+            promoted, exploratory = verify_all(candidates, interpret=pack.interpret)
+        except Exception as e:
+            _record_pipeline_error(ctx, "verify_patterns", str(e))
+            promoted, exploratory = [], []
         ctx.state["pattern_stats"]["promoted"] = len(promoted)
         ctx.state["pattern_stats"]["exploratory"] = len(exploratory)
         ctx.log(f"Verified: {len(promoted)} promoted, {len(exploratory)} exploratory")
@@ -397,6 +467,9 @@ async def run(ctx, input):  # noqa: ANN001
                 "connectors": plan_info.get("connectors"),
                 "query_count": len(plan_info.get("queries") or []),
             }
+        errs = ctx.state.get("pipeline_errors") or []
+        if errs:
+            run_snapshot["pipeline_errors"] = errs
         ctx.artifact("run_summary.json", generate_run_summary(run_snapshot), "application/json")
 
         ctx.artifact("coverage_report.md", generate_coverage_markdown(coverage), "text/markdown")
@@ -415,6 +488,7 @@ async def run(ctx, input):  # noqa: ANN001
                 "graph_nodes": graph.node_count,
                 "graph_edges": graph.edge_count,
                 "empty_corpus": bool(ctx.state.get("empty_corpus")),
+                "pipeline_error_count": len(ctx.state.get("pipeline_errors") or []),
             }
         )
         def _pattern_result_row(p: PromotedPattern) -> dict[str, str | int]:
@@ -439,6 +513,7 @@ async def run(ctx, input):  # noqa: ANN001
         "patterns_promoted": len(promoted),
         "patterns_exploratory": len(exploratory),
         "documents_analyzed": len(all_docs),
+        "pipeline_errors": ctx.state.get("pipeline_errors", []),
     }
 
 
