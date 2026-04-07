@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import networkx as nx
 import numpy as np
@@ -18,6 +19,25 @@ _BRIDGE_EVIDENCE_PER_ENDPOINT = 5
 _BRIDGE_EVIDENCE_MAX_TOTAL = 10
 _MAX_ENDPOINT_BRIDGE_APPEARANCES = 2
 _BRIDGE_PAIR_DEDUP_SIM = 0.7
+
+
+def _endpoint_significant_token_overlap(
+    name_u: str, name_v: str, min_token_len: int = 4
+) -> bool:
+    """Skip bridges where a long token from one endpoint appears inside the other (NLP/LLM-style overlap)."""
+    u = (name_u or "").lower()
+    v = (name_v or "").lower()
+    if not u or not v:
+        return False
+    words_u = [w for w in re.split(r"[^\w]+", u) if len(w) > min_token_len]
+    words_v = [w for w in re.split(r"[^\w]+", v) if len(w) > min_token_len]
+    for w in words_u:
+        if w in v:
+            return True
+    for w in words_v:
+        if w in u:
+            return True
+    return False
 
 
 def _collect_bridge_evidence(
@@ -261,6 +281,8 @@ def detect_bridges(
         if u_lower and v_lower and (u_lower in v_lower or v_lower in u_lower):
             continue
         if semantic_threshold <= sim <= max_semantic_similarity:
+            if _endpoint_significant_token_overlap(node_u.name, node_v.name):
+                continue
             bridge_candidates.append(
                 {
                     "node_u": node_u,

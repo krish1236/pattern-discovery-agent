@@ -12,11 +12,29 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
+
+# RunForge workers often ship an older agent-runtime whose YAML parser warns on
+# ``inputs`` / ``planned_steps`` (platform metadata). That UserWarning is merged
+# into step stderr and can fail the run. Safe to ignore until the worker image
+# includes agent-runtime with those keys in _VALID_FIELDS.
+warnings.filterwarnings(
+    "ignore",
+    message="Unknown fields in agent.yaml:",
+    category=UserWarning,
+)
+# Optional: HF Hub nags when HF_TOKEN is unset; same stderr-as-failure issue.
+warnings.filterwarnings(
+    "ignore",
+    message=".*unauthenticated requests to the HF Hub.*",
+    category=UserWarning,
+)
 
 from agent_runtime import AgentRuntime
 
 from src.core.graph import KnowledgeGraph
 from src.core.patterns import detect_bridges, detect_drift, detect_gaps
+from src.core.patterns.dedup import dedup_promoted_contradictions
 from src.core.patterns.contradictions import detect_contradictions, refine_contradiction_candidates
 from src.core.report import (
     generate_coverage_markdown,
@@ -422,6 +440,21 @@ async def run(ctx, input):  # noqa: ANN001
         ctx.state["pattern_stats"]["promoted"] = len(promoted)
         ctx.state["pattern_stats"]["exploratory"] = len(exploratory)
         ctx.log(f"Verified: {len(promoted)} promoted, {len(exploratory)} exploratory")
+        try:
+            promoted, dedup_stats = dedup_promoted_contradictions(promoted)
+            for k, v in dedup_stats.items():
+                ctx.state["pattern_stats"][f"contradiction_dedup_{k}"] = v
+            if dedup_stats["patterns_merged"] > 0:
+                ctx.log(
+                    "Contradiction dedup: %s → %s contradictions "
+                    "(%s groups merged, %s patterns folded into primary)",
+                    dedup_stats["contradictions_before"],
+                    dedup_stats["contradictions_after"],
+                    dedup_stats["groups_merged"],
+                    dedup_stats["patterns_merged"],
+                )
+        except Exception as e:
+            _record_pipeline_error(ctx, "verify_patterns", f"contradiction_dedup: {e}")
 
     with ctx.safe_step("generate_report"):
         tier_map = corpus_stats(all_docs)["documents_per_tier"]

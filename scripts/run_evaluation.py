@@ -33,6 +33,7 @@ sys.path.insert(0, str(_ROOT))
 
 from src.core.graph import KnowledgeGraph
 from src.core.patterns import detect_bridges, detect_drift, detect_gaps
+from src.core.patterns.dedup import dedup_promoted_contradictions
 from src.core.patterns.contradictions import detect_contradictions, refine_contradiction_candidates
 from src.core.report import (
     generate_coverage_markdown,
@@ -424,6 +425,16 @@ async def run_pipeline(
 
     promoted, exploratory = verify_all(candidates, interpret=pack.interpret)
     timings["verify"] = time.time() - t_verify
+
+    promoted, dedup_stats = dedup_promoted_contradictions(promoted)
+    if dedup_stats["patterns_merged"] > 0:
+        logger.info(
+            "Contradiction dedup: %s → %s contradictions (%s groups merged, %s patterns folded)",
+            dedup_stats["contradictions_before"],
+            dedup_stats["contradictions_after"],
+            dedup_stats["groups_merged"],
+            dedup_stats["patterns_merged"],
+        )
 
     logger.info("Promoted: %s", len(promoted))
     for p in promoted:

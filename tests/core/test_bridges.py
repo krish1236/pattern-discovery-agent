@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+import src.core.patterns.bridges as bridges_mod
 from src.core.graph import KnowledgeGraph
 from src.core.patterns.bridges import detect_bridges
 from src.core.types import Edge, EdgeMeta, EdgeType, Node, NodeType
@@ -179,6 +180,13 @@ def bridge_graph_with_community_assertions() -> KnowledgeGraph:
 
     g.add_edge(Edge(source_node_id="c1", target_node_id="c3", edge_type=EdgeType.ASSOCIATED_WITH, meta=meta))
     return g
+
+
+def test_endpoint_significant_token_overlap() -> None:
+    assert bridges_mod._endpoint_significant_token_overlap(
+        "Natural Language Processing", "Large Language Models"
+    )
+    assert not bridges_mod._endpoint_significant_token_overlap("LoRA", "Transformer")
 
 
 class TestBridgeDetection:
