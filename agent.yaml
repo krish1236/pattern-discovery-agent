@@ -1,13 +1,46 @@
-# Runforge: define `inputs` so the dashboard shows a guided form (see ApplyPilot agent.yaml).
-# Values are passed as ctx.inputs and merged in agent.py: payload = {**input, **ctx.inputs}.
+# Runforge:
+# - `inputs` → guided trigger form; merged in agent.py as ctx.inputs.
+# - `experience` → stored as projects.experience_config on deploy (platform-api
+#   experience_config_from_agent_yaml reads the top-level key `experience`, not
+#   `yamlexperience`). Dashboard: AgentRunInputForm, step labels, AgentResults hero.
 
 name: pattern-discovery
+description: >
+  Discovers non-obvious structure in a research topic: bridges between communities
+  that rarely cite each other, contradictory claims backed by different sources,
+  how themes shift over time, and concepts many papers recommend but few evaluate.
+  Pulls scholarly + web sources, extracts a knowledge graph, mines patterns, and
+  writes a promotion-gated report with evidence and an interactive graph view.
+emoji: "🔭"
 entrypoint: agent:run
 python_version: "3.11"
 browser: false
 run_timeout_minutes: 60
 max_concurrency: 2
 tools: []
+
+# Experience Engine (input UX, per-step copy, hero artifact). Schema consumed by
+# platform-dashboard/src/lib/experienceConfig.ts — execution.style is shown as subtitle text.
+experience:
+  input:
+    style: conversational
+    placeholder: "Enter a research topic..."
+  execution:
+    # Shown under the run timeline (not a mode flag); use a full sentence.
+    style: "Step-by-step pipeline — status updates as each stage completes."
+    messages:
+      classify_topic: "Classifying research topic..."
+      route_sources: "Planning data sources..."
+      ingest_corpus: "Ingesting research papers..."
+      expand_corpus: "Expanding document corpus..."
+      extract_knowledge: "Extracting knowledge graph..."
+      build_graph: "Building knowledge graph..."
+      mine_patterns: "Mining patterns (bridges, contradictions, drift, gaps)..."
+      verify_patterns: "Verifying and promoting patterns..."
+      generate_report: "Writing report and artifacts..."
+  output:
+    hero_artifact: pattern_report.md
+    title: "Pattern Discovery Report"
 
 planned_steps:
   - name: classify_topic
